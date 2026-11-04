@@ -63,12 +63,14 @@ pnpm --filter @vortex/api prisma:migrate
 pnpm --filter @vortex/api seed
 ```
 
-迁移文件位于 `apps/api/prisma/migrations/`，共 4 个：
+迁移文件位于 `apps/api/prisma/migrations/`，共 6 个：
 
 1. `20261103181524_init_postgres` — 初始化 10 张表
 2. `20261103182102_fix_decimal_scale_for_ratios` — 比率字段 Decimal(78,18)
 3. `20261103190913_add_quote_metadata_fields` — 报价元数据字段
 4. `20261104100000_indexer_sync_state` — 索引同步状态表
+5. `20261104173517_anomaly_center` — 异常中心（alert_rules / anomaly_events / alert_notifications）
+6. `20261104184846_market_snapshot` — 市场快照（market_snapshots）
 
 ### 5. 启动后端
 
