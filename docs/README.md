@@ -7,6 +7,7 @@ VORTEX DEX 是基于 Base 链的非托管 DEX Aggregator。Sprint 0-9 已全部�
 - [架构设计](architecture.md) — 系统分层（前端 → 后端 → DEX 适配器 → 链上合约），报价引擎、V2/V3 适配器、路由引擎、Gas 估算、路由优化、事件索引等模块说明。
 - [API 文档](api.md) — 基于实际 controller 列出的全部 HTTP 接口（方法、路径、请求/响应字段）。
 - [部署手册](deployment.md) — 本地 / 生产部署步骤（Docker、环境变量、数据库迁移、seed）。
+- [Analytics 现状与缺口分析](analytics-gap-analysis.md) — Analytics & Diagnostic Center 开发基准：已有 / 缺失 / 可复用 / 需新增 / 关联缺口（intent_id 主线）。
 
 ## 其他参考
 
