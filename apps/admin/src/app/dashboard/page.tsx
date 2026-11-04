@@ -113,6 +113,9 @@ export default function DashboardPage() {
             <a href="/diagnosis" className="text-sm text-gray-500 hover:text-gray-300">
               问题诊断
             </a>
+            <a href="/ai" className="text-sm text-gray-500 hover:text-gray-300">
+              AI 分析
+            </a>
             <select
               value={chainId ?? ""}
               onChange={(e) =>
