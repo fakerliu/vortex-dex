@@ -4,6 +4,7 @@ import { ChainModule } from './chain/chain.module';
 import { DexModule } from './dex/dex.module';
 import { HealthModule } from './modules/health/health.module';
 import { TokenModule } from './modules/token/token.module';
+import { MarketModule } from './modules/market/market.module';
 import { QuoteModule } from './modules/quote/quote.module';
 import { RouteModule } from './modules/route/route.module';
 import { SwapModule } from './modules/swap/swap.module';
@@ -21,6 +22,7 @@ import { IndexerModule } from './indexer/indexer.module';
     DexModule,
     HealthModule,
     TokenModule,
+    MarketModule,
     QuoteModule,
     RouteModule,
     SwapModule,

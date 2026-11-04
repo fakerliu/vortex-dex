@@ -102,3 +102,21 @@ export function priceImpactToPercent(
   if (!priceImpact || priceImpact === "0" || priceImpact === "0.0") return "0";
   return formatDecimalString(shiftDecimalPoint(priceImpact, 2), maxFractionDigits);
 }
+
+/**
+ * 将后端返回的 USD 十进制字符串格式化为带 $ 的展示文案（纯字符串运算，无 Float）。
+ * - 整数部分 >= 1：保留 2 位小数；
+ * - < 1 的小数：保留到首个非零位后 4 位（最多 8 位小数），避免极小价格被抹平为 0；
+ * - null / 空：返回占位符「—」。
+ */
+export function formatUsd(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const abs = value.startsWith("-") ? value.slice(1) : value;
+  const [intPart, fracPart = ""] = abs.split(".");
+  if (intPart !== "0") {
+    return `$${formatDecimalString(value, 2)}`;
+  }
+  const firstNonZero = fracPart.search(/[1-9]/);
+  const maxDigits = firstNonZero === -1 ? 2 : Math.min(8, firstNonZero + 4);
+  return `$${formatDecimalString(value, maxDigits)}`;
+}

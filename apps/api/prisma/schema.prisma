@@ -428,3 +428,24 @@ model AlertNotification {
   @@index([status])
   @@map("alert_notifications")
 }
+
+// ---------- J. 市场快照（Sprint 2 Market Data Provider） ----------
+// Explore / Token Detail 的市场数据落库。每个 (chain_id, token_address) 只保留
+// 最新一条快照（upsert），price_usd 为链上推导的 USD 价格（Decimal(78,18) 定点）。
+// authenticity 严格取值自 data-authenticity.ts 的 DataAuthenticity 枚举。
+model MarketSnapshot {
+  id            String   @id @default(cuid())
+  chain_id      Int
+  token_address String // 小写规范化
+  price_usd     Decimal? @db.Decimal(78, 18) // 链上推导的 USD 价格（18 位小数）
+  quote_token   String? // 价格基准 token 地址（如 USDC/WETH），小写
+  liquidity_usd Decimal? @db.Decimal(78, 0) // 估算的 USD 流动性（可选，可空）
+  authenticity  String // 数据真实度标记，取值见 data-authenticity.ts
+  source        String? // 数据来源描述（如 "onchain-quote-via-usdc"）
+  block_number  Int?
+  created_at    DateTime @default(now())
+
+  @@unique([chain_id, token_address])
+  @@index([created_at])
+  @@map("market_snapshots")
+}

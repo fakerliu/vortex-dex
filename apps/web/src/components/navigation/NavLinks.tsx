@@ -6,6 +6,7 @@ import { cn } from "@/utils/cn";
 
 const LINKS = [
   { href: "/swap", label: "Swap" },
+  { href: "/explore", label: "Explore" },
   { href: "/transactions", label: "Transactions" },
   { href: "/analytics", label: "Analytics" },
 ];
