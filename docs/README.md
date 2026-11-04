@@ -8,6 +8,7 @@ VORTEX DEX 是基于 Base 链的非托管 DEX Aggregator。Sprint 0-9 已全部�
 - [API 文档](api.md) — 基于实际 controller 列出的全部 HTTP 接口（方法、路径、请求/响应字段）。
 - [部署手册](deployment.md) — 本地 / 生产部署步骤（Docker、环境变量、数据库迁移、seed）。
 - [Analytics 现状与缺口分析](analytics-gap-analysis.md) — Analytics & Diagnostic Center 开发基准：已有 / 缺失 / 可复用 / 需新增 / 关联缺口（intent_id 主线）。
+- [Analytics 指标字典](metrics-dictionary.md) — 每个指标的公式、数据来源、统计口径、更新频率、钻取能力、完整性要求；标注「现有表 / 需新建表」。
 
 ## 其他参考
 
