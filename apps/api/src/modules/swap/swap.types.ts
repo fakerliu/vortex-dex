@@ -209,6 +209,10 @@ export interface SubmitSwapRequestDto {
   chainId?: number;
   /** 可选初始状态，默认 PENDING（允许 APPROVAL_REQUIRED / APPROVED / PENDING）。 */
   status?: string;
+  /** 交易意图 ID（Analytics 事件采集用，可选）。 */
+  intentId?: string;
+  /** 关联的报价 ID（Analytics 事件采集用，可选）。 */
+  quoteId?: string;
 }
 
 /** Token 元数据摘要（history/detail 增强返回，用于前端展示符号与精度）。 */

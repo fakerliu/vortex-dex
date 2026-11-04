@@ -87,7 +87,7 @@ model Pool {
   created_at        DateTime @default(now())
   updated_at        DateTime @updatedAt
 
-  protocol  DexProtocol     @relation(fields: [protocol_id], references: [id])
+  protocol  DexProtocol    @relation(fields: [protocol_id], references: [id])
   snapshots PoolSnapshot[]
 
   @@unique([chain_id, pool_address])
@@ -115,50 +115,71 @@ model Quote {
   block_number     Int? // 报价时区块高度
   created_at       DateTime  @default(now())
   expires_at       DateTime?
+  // ---- Analytics 事件采集新增（可空，不破坏现有逻辑） ----
+  intent_id        String? // 交易意图 ID，贯穿 前端行为→报价→路由→交易→链上
+  user_address     String? // 发起报价的钱包地址（小写规范化）
+  response_ms      Int? // 报价响应耗时（毫秒）
 
   @@index([token_in, token_out])
   @@index([created_at])
+  @@index([intent_id])
+  @@index([user_address])
   @@map("quotes")
 }
 
 // ---------- 6. 路由候选 ----------
 model RouteCandidate {
-  id            String   @id @default(cuid())
-  path_id       String // 关联某次路径计算的标识（如 quote.id 或独立 path key）
-  token_path    String // JSON 序列化的 token 地址数组（如 ["0x..","0x.."]）
-  pool_path     String // JSON 序列化的 pool 地址数组
-  protocol_path String // JSON 序列化的协议标识数组
-  amount_in     Decimal  @db.Decimal(78, 0)
-  amount_out    Decimal  @db.Decimal(78, 0)
-  estimated_gas Decimal  @db.Decimal(78, 0)
-  net_output    Decimal  @db.Decimal(78, 0)
-  price_impact  Decimal  @db.Decimal(78, 18) // 价格影响，如 0.0012
-  route_score   Decimal  @db.Decimal(78, 18) // 路径评分，如 0.998
-  created_at    DateTime @default(now())
+  id               String   @id @default(cuid())
+  path_id          String // 关联某次路径计算的标识（如 quote.id 或独立 path key）
+  token_path       String // JSON 序列化的 token 地址数组（如 ["0x..","0x.."]）
+  pool_path        String // JSON 序列化的 pool 地址数组
+  protocol_path    String // JSON 序列化的协议标识数组
+  amount_in        Decimal  @db.Decimal(78, 0)
+  amount_out       Decimal  @db.Decimal(78, 0)
+  estimated_gas    Decimal  @db.Decimal(78, 0)
+  net_output       Decimal  @db.Decimal(78, 0)
+  price_impact     Decimal  @db.Decimal(78, 18) // 价格影响，如 0.0012
+  route_score      Decimal  @db.Decimal(78, 18) // 路径评分，如 0.998
+  created_at       DateTime @default(now())
+  // ---- Analytics 事件采集新增（可空，不破坏现有逻辑） ----
+  intent_id        String? // 交易意图 ID
+  quote_id         String? // 关联的报价 ID
+  is_selected      Boolean  @default(false) // 是否为最终选定的路由
+  route_compute_ms Int? // 路由计算耗时（毫秒）
 
   @@index([path_id])
+  @@index([intent_id])
+  @@index([quote_id])
   @@map("route_candidates")
 }
 
 // ---------- 7. 交易 ----------
 model Swap {
-  id           String    @id @default(cuid())
-  user_address String // 统一小写规范化
-  token_in     String
-  token_out    String
-  amount_in    Decimal   @db.Decimal(78, 0)
-  amount_out   Decimal   @db.Decimal(78, 0)
-  tx_hash      String    @unique // 统一小写规范化
-  status       String // 如 pending / confirmed / failed
-  chain_id     Int
-  created_at   DateTime  @default(now())
-  confirmed_at DateTime?
+  id                  String    @id @default(cuid())
+  user_address        String // 统一小写规范化
+  token_in            String
+  token_out           String
+  amount_in           Decimal   @db.Decimal(78, 0)
+  amount_out          Decimal   @db.Decimal(78, 0)
+  tx_hash             String    @unique // 统一小写规范化
+  status              String // 如 pending / confirmed / failed
+  chain_id            Int
+  created_at          DateTime  @default(now())
+  confirmed_at        DateTime?
+  // ---- Analytics 事件采集新增（可空，不破坏现有逻辑） ----
+  intent_id           String? // 交易意图 ID
+  quote_id            String? // 关联的报价 ID
+  failure_reason      String? // 失败原因（revert 原因 / 结构化错误码）
+  gas_used            String? // 链上回执 gasUsed（原始大整数字符串）
+  effective_gas_price String? // effectiveGasPrice（wei 字符串）
 
   events SwapEvent[]
 
   @@index([user_address])
   @@index([chain_id])
   @@index([status])
+  @@index([intent_id])
+  @@index([quote_id])
   @@map("swaps")
 }
 
@@ -205,11 +226,11 @@ model PoolSnapshot {
 // 每链一条：记录已同步到的区块高度 / 该块 hash，以及最近 N 个区块 hash
 //（JSON 序列化，用于检测区块重组）。Indexer 重启后从此高度继续，不重复扫描。
 model SyncState {
-  chain_id           Int      @id
-  last_synced_block  Int // 已确认同步到的区块高度（不含重组安全窗口）
-  last_synced_hash   String // 已同步区块的 hash
+  chain_id            Int      @id
+  last_synced_block   Int // 已确认同步到的区块高度（不含重组安全窗口）
+  last_synced_hash    String // 已同步区块的 hash
   recent_block_hashes String // JSON：最近 N 个区块 [{n:number, hash:string}]，供重组检测
-  updated_at         DateTime @updatedAt
+  updated_at          DateTime @updatedAt
 
   @@map("sync_state")
 }
@@ -230,4 +251,104 @@ model AnalyticsDaily {
   @@unique([date, chain_id]) // 日度聚合幂等
   @@index([date])
   @@map("analytics_daily")
+}
+
+// ============================================================
+// Analytics & Diagnostic Center（第三步起新增）
+// 事件采集 + 意图关联 + 系统监控。全部独立新表，不破坏现有业务表。
+// ============================================================
+
+// ---------- A. 统一业务事件 ----------
+model AnalyticsEvent {
+  id             String   @id @default(cuid())
+  event_id       String   @unique // 全局唯一事件 ID
+  event_name     String // quote_requested / review_swap_clicked / transaction_submitted 等
+  event_version  Int      @default(1)
+  event_time     DateTime // UTC
+  environment    String   @default("production") // production / testnet / local
+  chain_id       Int?
+  wallet_address String? // 小写规范化
+  session_id     String?
+  intent_id      String?
+  request_id     String?
+  properties     String // JSON 序列化的事件负载
+  created_at     DateTime @default(now())
+
+  @@index([event_name, event_time])
+  @@index([intent_id])
+  @@index([wallet_address])
+  @@index([created_at])
+  @@map("analytics_events")
+}
+
+// ---------- B. 交易意图 ----------
+model AnalyticsIntent {
+  id             String    @id @default(cuid())
+  intent_id      String    @unique // 一次交易意图唯一 ID
+  wallet_address String? // 小写规范化
+  chain_id       Int?
+  token_in       String?
+  token_out      String?
+  amount_in      String? // 原始大整数字符串
+  quote_id       String?
+  route_id       String?
+  status         String // 意图状态：started / quoted / confirmed / failed / abandoned
+  started_at     DateTime  @default(now())
+  completed_at   DateTime?
+
+  @@index([wallet_address])
+  @@index([status])
+  @@index([started_at])
+  @@map("analytics_intents")
+}
+
+// ---------- C. 漏斗事件（含步骤序号） ----------
+model AnalyticsFunnelEvent {
+  id          String   @id @default(cuid())
+  intent_id   String // 关联交易意图
+  step        Int // 漏斗步骤序号（1..9）
+  step_name   String // page_view / wallet_connected / ... / onchain_confirmed
+  status      String // completed / dropped
+  occurred_at DateTime @default(now())
+  properties  String? // JSON 负载
+
+  @@index([intent_id, step])
+  @@index([step_name])
+  @@index([occurred_at])
+  @@map("analytics_funnel_events")
+}
+
+// ---------- D. 系统监控指标 ----------
+model SystemMetric {
+  id           String   @id @default(cuid())
+  service_name String // frontend / api / rpc / quote-engine / route-engine / indexer
+  metric_name  String // request_count / error_count / p95_latency / block_lag 等
+  metric_value String // 指标值（字符串，保留精度）
+  metric_unit  String? // ms / count / block 等
+  environment  String   @default("production")
+  dimensions   String? // JSON 序列化的维度（provider、chain_id、endpoint 等）
+  timestamp    DateTime
+
+  @@index([service_name, metric_name, timestamp])
+  @@index([timestamp])
+  @@map("system_metrics")
+}
+
+// ---------- E. 错误事件 ----------
+model ErrorEvent {
+  id         String   @id @default(cuid())
+  error_code String // 统一错误码（QUOTE_NOT_FOUND / RPC_TIMEOUT / ...）
+  error_type String // business / technical
+  message    String?
+  service    String? // quote-engine / route-engine / swap / indexer ...
+  intent_id  String?
+  request_id String?
+  chain_id   Int?
+  context    String? // JSON 序列化的上下文
+  created_at DateTime @default(now())
+
+  @@index([error_code, created_at])
+  @@index([error_type])
+  @@index([intent_id])
+  @@map("error_events")
 }

@@ -109,6 +109,10 @@ export interface SubmitSwapParams {
   amountOut: string;
   chainId?: number;
   status?: string;
+  /** 交易意图 ID（Analytics 埋点，可选）。 */
+  intentId?: string;
+  /** 关联报价 ID（Analytics 埋点，可选）。 */
+  quoteId?: string;
 }
 
 /** POST /api/v1/swaps/submit 返回的 data 部分。 */

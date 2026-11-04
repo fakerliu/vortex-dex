@@ -18,6 +18,10 @@ export interface RouteRequestDto {
   protocols?: string[];
   /** 可选的多跳中间 token（默认 WETH + USDC）。 */
   hubTokens?: string[];
+  /** 交易意图 ID（Analytics 事件采集用，可选）。 */
+  intentId?: string;
+  /** 钱包地址（Analytics 事件采集用，可选）。 */
+  userAddress?: string;
 }
 
 /** 单跳明细（POST 返回用，便于审计整条路径）。 */

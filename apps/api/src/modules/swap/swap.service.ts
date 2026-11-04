@@ -65,6 +65,7 @@ import {
   deriveSwapDirection,
   parseSwapEventData,
 } from './swap-event.util';
+import { EventCollectorService } from '../analytics/event-collector.service';
 
 const DEFAULT_SLIPPAGE_BPS = 50;
 const MAX_SLIPPAGE_BPS = 10_000;
@@ -99,6 +100,7 @@ export class SwapService {
     private readonly classic: AerodromeClassicAdapter,
     private readonly cl: AerodromeClAdapter,
     private readonly uniswapV3: UniswapV3Adapter,
+    private readonly events: EventCollectorService,
   ) {}
 
   // ---------- prepare ----------
@@ -252,6 +254,9 @@ export class SwapService {
           tx_hash: txHash,
           status,
           chain_id: chainId,
+          // Analytics：意图 + 报价关联（可选）
+          ...(req.intentId ? { intent_id: req.intentId } : {}),
+          ...(req.quoteId ? { quote_id: req.quoteId } : {}),
         },
       });
     } catch (err) {
@@ -264,6 +269,32 @@ export class SwapService {
       }
       throw err;
     }
+
+    // Analytics 旁路：记录交易提交事件（失败不阻断）
+    await this.events.track({
+      eventName: 'transaction_submitted',
+      chainId,
+      walletAddress: user,
+      intentId: req.intentId,
+      properties: {
+        swapId: row.id,
+        txHash,
+        tokenIn,
+        tokenOut,
+        amountIn,
+        status,
+      },
+    });
+    await this.events.recordIntent({
+      intentId: req.intentId ?? `tx_${txHash}`,
+      walletAddress: user,
+      chainId,
+      tokenIn,
+      tokenOut,
+      amountIn,
+      quoteId: req.quoteId,
+      status: 'submitted',
+    });
 
     return toSwapDto(row);
   }
@@ -330,6 +361,17 @@ export class SwapService {
       await this.backfillEventSwapId(row.id, row.tx_hash);
     } else if (events.length > 0 && !wasTerminal) {
       await this.backfillEventSwapId(row.id, row.tx_hash);
+    }
+
+    // Analytics：持久化 failure_reason + gas（链上回执信息落库）
+    if (receipt && receipt !== 'rpc_error') {
+      await this.persistReceiptMeta(
+        row.id,
+        failureReason,
+        gasUsed,
+        effectiveGasPrice,
+        blockNumber,
+      );
     }
 
     return {
@@ -486,6 +528,30 @@ export class SwapService {
       });
     } catch (err) {
       this.logger.warn(`更新交易状态失败（id=${id}）: ${this.errMsg(err)}`);
+    }
+  }
+
+  /** 持久化链上回执的 failure_reason / gas / 区块高度（Analytics 失败原因 + 成本）。 */
+  private async persistReceiptMeta(
+    id: string,
+    failureReason: string | null,
+    gasUsed: string | null,
+    effectiveGasPrice: string | null,
+    blockNumber: number | null,
+  ): Promise<void> {
+    try {
+      await this.prisma.swap.update({
+        where: { id },
+        data: {
+          ...(failureReason ? { failure_reason: failureReason } : {}),
+          ...(gasUsed !== null ? { gas_used: gasUsed } : {}),
+          ...(effectiveGasPrice !== null
+            ? { effective_gas_price: effectiveGasPrice }
+            : {}),
+        },
+      });
+    } catch (err) {
+      this.logger.warn(`持久化回执元数据失败（id=${id}）: ${this.errMsg(err)}`);
     }
   }
 

@@ -78,6 +78,7 @@ export async function fetchQuote(params: QuoteParams): Promise<Quote> {
         ...(params.slippageBps !== undefined
           ? { slippageBps: params.slippageBps }
           : {}),
+        ...(params.intentId ? { intentId: params.intentId } : {}),
       }),
     });
   } catch (err) {

@@ -9,6 +9,7 @@ import {
 import type { PrepareSwapResult } from "@/types/swap";
 import { prepareSwap, submitSwap } from "@/services/swap";
 import type { Token } from "@/types/token";
+import { createIntentId, trackEvent } from "@/lib/analytics";
 
 /**
  * 交易执行阶段（前端状态机）。
@@ -109,6 +110,8 @@ export function useSwapExecution(
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  // 一次交易意图的追踪 ID（Analytics：贯穿报价→审批→交易）
+  const [intentId, setIntentId] = useState<string | null>(null);
 
   const busy = useMemo(
     () =>
@@ -134,6 +137,7 @@ export function useSwapExecution(
     setSwapTxHash(null);
     setRecord(null);
     setError(null);
+    setIntentId(null);
   }, []);
 
   /** 触发 prepare。 */
@@ -149,6 +153,17 @@ export function useSwapExecution(
     setApproveTxHash(null);
     setSwapTxHash(null);
     setRecord(null);
+
+    // Analytics：为本次交易意图生成 intent_id
+    const iid = createIntentId();
+    setIntentId(iid);
+    trackEvent({
+      eventName: "review_swap_clicked",
+      intentId: iid,
+      walletAddress: address,
+      chainId: payToken.chainId,
+      properties: { tokenIn: payToken.address, tokenOut: receiveToken.address, amountIn },
+    });
 
     try {
       const result = await prepareSwap({
@@ -186,6 +201,14 @@ export function useSwapExecution(
       });
       setApproveTxHash(approveHash);
 
+      trackEvent({
+        eventName: "wallet_signature",
+        intentId: intentId ?? undefined,
+        walletAddress: address,
+        chainId: prepared.chainId,
+        properties: { type: "approve", txHash: approveHash },
+      });
+
       setPhase("approve-confirming");
       await publicClient?.waitForTransactionReceipt({ hash: approveHash });
 
@@ -198,7 +221,7 @@ export function useSwapExecution(
       }
       fail(err);
     }
-  }, [prepared, sendTransactionAsync, publicClient, fail]);
+  }, [prepared, sendTransactionAsync, publicClient, intentId, address, fail]);
 
   /** 确认 swap：广播交易，等回执，回写后端。 */
   const confirmSwap = useCallback(async () => {
@@ -219,6 +242,14 @@ export function useSwapExecution(
       });
       setSwapTxHash(hash);
 
+      trackEvent({
+        eventName: "transaction_submitted",
+        intentId: intentId ?? undefined,
+        walletAddress: address,
+        chainId: prepared.chainId,
+        properties: { txHash: hash },
+      });
+
       setPhase("submitting");
       // 回写后端（非托管：只传公开 txHash + 元数据）。广播后立即回写，不等待链上确认。
       const saved = await submitSwap({
@@ -230,6 +261,7 @@ export function useSwapExecution(
         amountOut: prepared.amountOut,
         chainId: prepared.chainId,
         status: "PENDING",
+        ...(intentId ? { intentId } : {}),
       });
       setRecord({ id: saved.id, status: saved.status });
       setPhase("done");
@@ -241,7 +273,7 @@ export function useSwapExecution(
       }
       fail(err);
     }
-  }, [prepared, address, sendTransactionAsync, fail]);
+  }, [prepared, address, sendTransactionAsync, intentId, fail]);
 
   return {
     phase,

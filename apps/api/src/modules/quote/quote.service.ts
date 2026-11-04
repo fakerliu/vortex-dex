@@ -28,6 +28,7 @@ import {
 import { formatPrice, parseAmount } from '../../dex/math';
 import type { QuoteRequestDto, QuoteResponseDto } from './quote.types';
 import { toQuoteResponseDto } from './quote.types';
+import { EventCollectorService } from '../analytics/event-collector.service';
 
 const DEFAULT_SLIPPAGE_BPS = 50; // 0.5%
 const DEFAULT_QUOTE_TTL_MS = 30_000; // 30s
@@ -39,6 +40,7 @@ const MAX_SLIPPAGE_BPS = 10_000; // 100%
  * - 复用 DexPoolService（发现池 + 逐池报价）与 ChainRpcService/Erc20Reader。
  * - 不做多跳路径搜索（Sprint 5 路由引擎）。
  * - 金额 BigInt/Decimal 字符串，禁 Float；结果入库 quotes 表。
+ * - Analytics 第三步：旁路记录事件 + intent_id 关联（不阻断主流程）。
  */
 @Injectable()
 export class QuoteService {
@@ -47,9 +49,11 @@ export class QuoteService {
     private readonly rpc: ChainRpcService,
     private readonly erc20: Erc20ReaderService,
     private readonly poolService: DexPoolService,
+    private readonly events: EventCollectorService,
   ) {}
 
   async createQuote(req: QuoteRequestDto): Promise<QuoteResponseDto> {
+    const startedAt = Date.now();
     const chainId = this.resolveChainId(req.chainId);
     const tokenIn = this.assertAddress(req.tokenIn, 'tokenIn');
     const tokenOut = this.assertAddress(req.tokenOut, 'tokenOut');
@@ -110,7 +114,38 @@ export class QuoteService {
         source: best.quote.source,
         block_number: blockNumber,
         expires_at: expiresAt,
+        // Analytics：意图关联 + 响应耗时
+        ...(req.intentId ? { intent_id: req.intentId } : {}),
+        ...(req.userAddress
+          ? { user_address: req.userAddress.toLowerCase() }
+          : {}),
+        response_ms: Date.now() - startedAt,
       },
+    });
+
+    // Analytics 旁路：记录报价事件（失败不阻断）
+    await this.events.track({
+      eventName: 'quote_returned',
+      chainId,
+      walletAddress: req.userAddress,
+      sessionId: req.sessionId,
+      intentId: req.intentId,
+      properties: {
+        quoteId: row.id,
+        tokenIn,
+        tokenOut,
+        amountIn: req.amountIn,
+        amountOut: amountOut.toString(),
+        protocol: best.protocolType,
+        responseMs: row.response_ms,
+      },
+    });
+    await this.events.recordMetric({
+      serviceName: 'quote-engine',
+      metricName: 'response_ms',
+      metricValue: String(row.response_ms),
+      metricUnit: 'ms',
+      dimensions: { chainId, protocol: best.protocolType },
     });
 
     return toQuoteResponseDto(row);

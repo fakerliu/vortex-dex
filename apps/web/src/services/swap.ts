@@ -193,6 +193,8 @@ export async function submitSwap(
     amountOut: params.amountOut,
     ...(params.chainId !== undefined ? { chainId: params.chainId } : {}),
     ...(params.status !== undefined ? { status: params.status } : {}),
+    ...(params.intentId !== undefined ? { intentId: params.intentId } : {}),
+    ...(params.quoteId !== undefined ? { quoteId: params.quoteId } : {}),
   });
 }
 

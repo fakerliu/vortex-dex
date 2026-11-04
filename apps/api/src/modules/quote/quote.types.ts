@@ -22,6 +22,12 @@ export interface QuoteRequestDto {
   protocols?: string[];
   /** 最大路径长度；Sprint 4 仅支持单跳（=1）。 */
   maxPathLength?: number;
+  /** 交易意图 ID（Analytics 事件采集用，可选）。 */
+  intentId?: string;
+  /** 发起报价的钱包地址（Analytics 事件采集用，可选）。 */
+  userAddress?: string;
+  /** 会话 ID（Analytics 事件采集用，可选）。 */
+  sessionId?: string;
 }
 
 /** 报价结果中的单跳路径条目。 */

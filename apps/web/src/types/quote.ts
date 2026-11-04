@@ -64,4 +64,6 @@ export interface QuoteParams {
   chainId: number;
   /** 滑点，bps（如 50 = 0.5%）。 */
   slippageBps?: number;
+  /** 交易意图 ID（Analytics 埋点，可选）。 */
+  intentId?: string;
 }

@@ -35,6 +35,7 @@ import type {
   RouteResponseDto,
 } from './route.types';
 import { toRouteCandidateDto } from './route.types';
+import { EventCollectorService } from '../analytics/event-collector.service';
 
 /** Base Mainnet 已核对 hub token（多跳中间跳候选）。 */
 const WETH = '0x4200000000000000000000000000000000000006';
@@ -101,9 +102,11 @@ export class RouteService {
     private readonly prisma: PrismaService,
     private readonly rpc: ChainRpcService,
     private readonly poolService: DexPoolService,
+    private readonly events: EventCollectorService,
   ) {}
 
   async computeRoute(req: RouteRequestDto): Promise<RouteResponseDto> {
+    const startedAt = Date.now();
     const chainId = this.resolveChainId(req.chainId);
     const tokenIn = this.assertAddress(req.tokenIn, 'tokenIn');
     const tokenOut = this.assertAddress(req.tokenOut, 'tokenOut');
@@ -209,7 +212,9 @@ export class RouteService {
     const pathId = randomUUID();
     const blockNumber = await this.readBlockNumber(chainId);
     const d = (v: string): Prisma.Decimal => new Prisma.Decimal(v);
-    for (const c of candidates) {
+    const routeComputeMs = Date.now() - startedAt;
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
       await this.prisma.routeCandidate.create({
         data: {
           path_id: pathId,
@@ -222,9 +227,44 @@ export class RouteService {
           net_output: d(c.netOutput.toString()),
           price_impact: d(c.priceImpact || '0'),
           route_score: d(c.routeScore || '0'),
+          // Analytics：意图关联 + 耗时 + 选中标记（排序后第一个为最佳）
+          ...(req.intentId ? { intent_id: req.intentId } : {}),
+          is_selected: i === 0,
+          route_compute_ms: routeComputeMs,
         },
       });
     }
+
+    // Analytics 旁路：记录路由事件（失败不阻断）
+    await this.events.track({
+      eventName: 'route_engine_completed',
+      chainId,
+      walletAddress: req.userAddress,
+      intentId: req.intentId,
+      properties: {
+        pathId,
+        tokenIn,
+        tokenOut,
+        amountIn: req.amountIn,
+        candidateCount: candidates.length,
+        selectedProtocolPath: candidates[0].protocolPath,
+        routeComputeMs,
+      },
+    });
+    await this.events.recordMetric({
+      serviceName: 'route-engine',
+      metricName: 'candidate_count',
+      metricValue: String(candidates.length),
+      metricUnit: 'count',
+      dimensions: { chainId, tokenIn, tokenOut },
+    });
+    await this.events.recordMetric({
+      serviceName: 'route-engine',
+      metricName: 'compute_ms',
+      metricValue: String(routeComputeMs),
+      metricUnit: 'ms',
+      dimensions: { chainId },
+    });
 
     return this.buildResponse(pathId, chainId, tokenIn, tokenOut, req.amountIn, {
       blockNumber,

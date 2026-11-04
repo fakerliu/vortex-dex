@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { AnalyticsService } from './analytics.service';
+import { EventCollectorService } from './event-collector.service';
 import type {
   AggregateDailyResultDto,
   AnalyticsSummaryDto,
@@ -13,10 +14,14 @@ import type {
  * - GET /api/v1/analytics/daily                 ：日度统计（预聚合优先，实时回退）
  * - GET /api/v1/analytics/protocol-distribution ：各协议交易量分布
  * - POST /api/v1/analytics/aggregate            ：触发日聚合落库 analytics_daily（幂等）
+ * - POST /api/v1/analytics/events               ：前端埋点事件上报（Analytics 第三步）
  */
 @Controller('analytics')
 export class AnalyticsController {
-  constructor(private readonly analytics: AnalyticsService) {}
+  constructor(
+    private readonly analytics: AnalyticsService,
+    private readonly events: EventCollectorService,
+  ) {}
 
   @Get('summary')
   summary(@Query('chainId') chainId?: string): Promise<AnalyticsSummaryDto> {
@@ -60,5 +65,32 @@ export class AnalyticsController {
       from,
       to,
     );
+  }
+
+  /** 前端埋点事件上报（Analytics 第三步）。 */
+  @Post('events')
+  async recordEvent(
+    @Body()
+    body: {
+      eventName?: string;
+      intentId?: string;
+      walletAddress?: string;
+      chainId?: number;
+      sessionId?: string;
+      properties?: Record<string, unknown>;
+    },
+  ): Promise<{ success: boolean }> {
+    if (!body.eventName) {
+      return { success: false };
+    }
+    await this.events.track({
+      eventName: body.eventName,
+      intentId: body.intentId,
+      walletAddress: body.walletAddress,
+      chainId: body.chainId,
+      sessionId: body.sessionId,
+      properties: body.properties,
+    });
+    return { success: true };
   }
 }
