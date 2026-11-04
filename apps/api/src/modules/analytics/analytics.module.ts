@@ -10,9 +10,11 @@ import { MonitorController } from './monitor.controller';
 import { MonitorService } from './monitor.service';
 import { AnomalyController } from './anomaly.controller';
 import { AnomalyService } from './anomaly.service';
+import { DiagnosisController } from './diagnosis.controller';
+import { DiagnosisService } from './diagnosis.service';
 
 /**
- * 经营分析模块（Sprint 9 + Analytics 第三~八步）。
+ * 经营分析模块（Sprint 9 + Analytics 第三~九步）。
  * 依赖 PrismaModule（@Global），无需重复导入。
  * EventCollectorService 导出供 quote/route/swap/indexer 等模块注入。
  */
@@ -23,6 +25,7 @@ import { AnomalyService } from './anomaly.service';
     DexAnalyticsController,
     MonitorController,
     AnomalyController,
+    DiagnosisController,
   ],
   providers: [
     AnalyticsService,
@@ -31,6 +34,7 @@ import { AnomalyService } from './anomaly.service';
     DexAnalyticsService,
     MonitorService,
     AnomalyService,
+    DiagnosisService,
   ],
   exports: [AnalyticsService, EventCollectorService],
 })
