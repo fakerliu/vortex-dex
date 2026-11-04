@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { Search, ShieldCheck } from "lucide-react";
+import { useAccount } from "wagmi";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { TokenIcon } from "./TokenIcon";
-import { DEFAULT_TOKENS } from "@/config/tokens";
+import { getTokensByChain } from "@/config/tokens";
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import type { Token } from "@/types/token";
 import { cn } from "@/utils/cn";
@@ -79,25 +80,32 @@ export function TokenSelector({
   onSelect: (token: Token) => void;
   selectedAddress?: string;
 }) {
+  const { chainId } = useAccount();
   const [query, setQuery] = useState("");
+
+  // 按当前钱包网络取可选代币（未连接/未知网络回退主网列表）。
+  const chainTokens = useMemo(
+    () => getTokensByChain(chainId ?? 8453),
+    [chainId],
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return DEFAULT_TOKENS;
-    return DEFAULT_TOKENS.filter(
+    if (!q) return chainTokens;
+    return chainTokens.filter(
       (t) =>
         t.symbol.toLowerCase().includes(q) ||
         t.name.toLowerCase().includes(q) ||
         t.address.toLowerCase().includes(q),
     );
-  }, [query]);
+  }, [query, chainTokens]);
 
   const popular = useMemo(
     () =>
-      POPULAR_SYMBOLS.map((s) => DEFAULT_TOKENS.find((t) => t.symbol === s)).filter(
+      POPULAR_SYMBOLS.map((s) => chainTokens.find((t) => t.symbol === s)).filter(
         (t): t is Token => Boolean(t),
       ),
-    [],
+    [chainTokens],
   );
 
   const handleSelect = (token: Token) => {

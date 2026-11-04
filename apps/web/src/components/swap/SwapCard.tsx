@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 import { ArrowUpDown, Check, Settings2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -16,6 +16,7 @@ import { ReviewSwapModal } from "./ReviewSwapModal";
 import {
   DEFAULT_PAY_TOKEN,
   DEFAULT_RECEIVE_TOKEN,
+  getDefaultTokensForChain,
 } from "@/config/tokens";
 import { isSupportedChain } from "@/config/chains";
 import {
@@ -44,6 +45,15 @@ export function SwapCard() {
   const [slippageOpen, setSlippageOpen] = useState(false);
   const [routeOpen, setRouteOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+
+  // 钱包切换网络时，重置 pay/receive 为该链的默认代币（避免 token.chainId 与钱包 chainId 不一致）。
+  useEffect(() => {
+    if (!chainId) return;
+    const { pay, receive } = getDefaultTokensForChain(chainId);
+    setPayToken(pay);
+    setReceiveToken(receive);
+    setAmount("");
+  }, [chainId]);
 
   const balance = useTokenBalance(payToken);
 
