@@ -1,0 +1,48 @@
+# VORTEX DEX 本地开发依赖：PostgreSQL + Redis
+# 本机若无 Docker 可忽略；配置已按标准写法给出，装上 Docker 后 `docker compose up -d` 即可。
+# 说明：本 compose 只起基础设施，不打包 apps/packages 业务服务（业务服务本地用 pnpm 直接跑）。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vortex-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vortex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vortex}
+      POSTGRES_DB: ${POSTGRES_DB:-vortex}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vortex} -d ${POSTGRES_DB:-vortex}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: vortex-redis
+    restart: unless-stopped
+    command: >
+      sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
+               redis-server --requirepass "$$REDIS_PASSWORD";
+             else
+               redis-server;
+             fi'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:

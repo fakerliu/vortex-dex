@@ -1,0 +1,6 @@
+# pnpm workspace 配置
+# 只把 apps/* 与 packages/* 纳入 workspace；
+# contracts/（Foundry）与 infrastructure/ 不参与 Node 包管理。
+packages:
+  - "apps/*"
+  - "packages/*"

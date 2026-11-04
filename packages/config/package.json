@@ -1,0 +1,14 @@
+{
+  "name": "@vortex/config",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VORTEX DEX 共享配置与环境变量读取工具",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {}
+}

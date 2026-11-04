@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  @apply bg-gray-100 text-gray-950 antialiased;
+}
+
+body {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* 数字统一使用等宽数字，避免金额跳动 */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,58 @@
+# ===== 依赖 =====
+node_modules/
+.pnpm-store/
+
+# 嵌套 lockfile（pnpm workspace 只在根目录保留一份 pnpm-lock.yaml）
+apps/*/pnpm-lock.yaml
+packages/*/pnpm-lock.yaml
+
+# ===== 构建产物 =====
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# ===== 缓存 =====
+.turbo/
+.eslintcache
+.cache/
+
+# ===== 环境与密钥（严禁提交） =====
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ===== 测试与覆盖率 =====
+coverage/
+.nyc_output/
+
+# ===== 数据库本地文件（SQLite 验证用，不入库） =====
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+
+# ===== Foundry / Solidity =====
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/
+contracts/.env
+
+# ===== 编辑器 / 系统 =====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# WorkBuddy 会话/工具目录（非项目内容）
+.workbuddy/
+
+# ===== 日志 =====
+*.log
+npm-debug.log*
+pnpm-debug.log*

@@ -1,0 +1,233 @@
+// ============================================================
+// VORTEX DEX 数据库模型（PostgreSQL）
+// ============================================================
+// 关键说明：
+// 1. datasource.url 由环境变量 DATABASE_URL 控制；
+//    provider 必须是字面量（Prisma 不允许在 provider 参数中使用 env()）。
+//    - 当前使用 PostgreSQL 16（Docker 容器 vortex-postgres）
+// 2. 金额 / 精度字段统一用 Decimal @db.Decimal(78, 0) 保存（链上原始大整数金额），
+//    在数据库侧做精确聚合，避免浮点误差。
+//    比率/小数类字段（price_impact / route_score）用 Decimal @db.Decimal(78, 18)
+//    保留小数位。
+// 3. 地址统一小写规范化后入库；chain_id 用 Int（8453 / 84532）。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- 1. 用户 ----------
+model User {
+  id             String   @id @default(cuid())
+  wallet_address String   @unique // 统一小写规范化
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@map("users")
+}
+
+// ---------- 2. Token ----------
+model Token {
+  id          String   @id @default(cuid())
+  chain_id    Int // 8453 / 84532
+  address     String // 统一小写规范化
+  symbol      String
+  name        String
+  decimals    Int
+  logo_uri    String?
+  is_verified Boolean  @default(false)
+  risk        Boolean  @default(false) // 风险标记（社区代币/新代币，需用户确认）
+  source      String? // 元数据来源：onchain（链上读取）| fallback（已知值兜底）
+  created_at  DateTime @default(now())
+
+  @@unique([chain_id, address]) // 同一条链上地址唯一
+  @@index([chain_id])
+  @@index([symbol])
+  @@map("tokens")
+}
+
+// ---------- 3. DEX 协议 ----------
+model DexProtocol {
+  id              String   @id @default(cuid())
+  name            String
+  protocol_type   String // 如 uniswap_v2 / uniswap_v3 等
+  version         String
+  chain_id        Int
+  factory_address String? // 地址统一小写规范化
+  router_address  String?
+  quoter_address  String?
+  is_enabled      Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  pools Pool[]
+
+  @@unique([chain_id, name, version]) // 协议注册幂等
+  @@index([chain_id])
+  @@map("dex_protocols")
+}
+
+// ---------- 4. 流动性池 ----------
+model Pool {
+  id                String   @id @default(cuid())
+  chain_id          Int
+  protocol_id       String // FK -> dex_protocols.id
+  token0_address    String // 统一小写规范化
+  token1_address    String
+  fee               Decimal  @db.Decimal(78, 0) // 费率原始表示（如 Uniswap V3 的 3000 = 0.3%）
+  pool_address      String // 统一小写规范化
+  liquidity         Decimal  @db.Decimal(78, 0)
+  reserve0          Decimal  @db.Decimal(78, 0)
+  reserve1          Decimal  @db.Decimal(78, 0)
+  last_synced_block Int
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  protocol  DexProtocol     @relation(fields: [protocol_id], references: [id])
+  snapshots PoolSnapshot[]
+
+  @@unique([chain_id, pool_address])
+  @@index([protocol_id])
+  @@index([chain_id, token0_address, token1_address])
+  @@map("pools")
+}
+
+// ---------- 5. 报价 ----------
+model Quote {
+  id               String    @id @default(cuid())
+  chain_id         Int
+  token_in         String // 统一小写规范化
+  token_out        String
+  amount_in        Decimal   @db.Decimal(78, 0)
+  amount_out       Decimal   @db.Decimal(78, 0)
+  gas_estimate     Decimal   @db.Decimal(78, 0)
+  price_impact     Decimal   @db.Decimal(78, 18) // 价格影响，如 0.000248
+  price            String? // 人读价格（tokenOut 兑 tokenIn，十进制字符串）
+  minimum_received Decimal?  @db.Decimal(78, 0) // 考虑滑点后的最小可接受输出（原始大整数）
+  swap_fee         String? // 手续费（ppm 字符串，1e6=100%）
+  protocol         String? // 来源协议 protocol_type（如 aerodrome_cl）
+  route            String? // JSON 序列化的单跳路径（[{pool, kind}]）
+  source           String? // 报价来源：constant-product / quoter / onchain-getAmountOut
+  block_number     Int? // 报价时区块高度
+  created_at       DateTime  @default(now())
+  expires_at       DateTime?
+
+  @@index([token_in, token_out])
+  @@index([created_at])
+  @@map("quotes")
+}
+
+// ---------- 6. 路由候选 ----------
+model RouteCandidate {
+  id            String   @id @default(cuid())
+  path_id       String // 关联某次路径计算的标识（如 quote.id 或独立 path key）
+  token_path    String // JSON 序列化的 token 地址数组（如 ["0x..","0x.."]）
+  pool_path     String // JSON 序列化的 pool 地址数组
+  protocol_path String // JSON 序列化的协议标识数组
+  amount_in     Decimal  @db.Decimal(78, 0)
+  amount_out    Decimal  @db.Decimal(78, 0)
+  estimated_gas Decimal  @db.Decimal(78, 0)
+  net_output    Decimal  @db.Decimal(78, 0)
+  price_impact  Decimal  @db.Decimal(78, 18) // 价格影响，如 0.0012
+  route_score   Decimal  @db.Decimal(78, 18) // 路径评分，如 0.998
+  created_at    DateTime @default(now())
+
+  @@index([path_id])
+  @@map("route_candidates")
+}
+
+// ---------- 7. 交易 ----------
+model Swap {
+  id           String    @id @default(cuid())
+  user_address String // 统一小写规范化
+  token_in     String
+  token_out    String
+  amount_in    Decimal   @db.Decimal(78, 0)
+  amount_out   Decimal   @db.Decimal(78, 0)
+  tx_hash      String    @unique // 统一小写规范化
+  status       String // 如 pending / confirmed / failed
+  chain_id     Int
+  created_at   DateTime  @default(now())
+  confirmed_at DateTime?
+
+  events SwapEvent[]
+
+  @@index([user_address])
+  @@index([chain_id])
+  @@index([status])
+  @@map("swaps")
+}
+
+// ---------- 8. 交易事件（幂等写入） ----------
+// Sprint 7 Indexer 写入的是「原始池子事件」（Swap/Sync/Mint/Burn/Fees/Collect 等），
+// 此时可能还没有对应的用户交易记录（Sprint 8 交易记录才回填 swap_id），
+// 因此 swap_id 允许为空。幂等键仍是 @@unique([tx_hash, log_index])。
+model SwapEvent {
+  id           String   @id @default(cuid())
+  swap_id      String? // FK -> swaps.id（Sprint 8 交易记录回填关联）
+  tx_hash      String // 统一小写规范化
+  event_type   String // 如 Swap / Sync / Mint / Burn / Fees / Collect 等
+  block_number Int
+  log_index    Int
+  event_data   String // JSON 序列化的事件负载（含 pool/poolKind/protocolType 与解析参数）
+  created_at   DateTime @default(now())
+
+  swap Swap? @relation(fields: [swap_id], references: [id])
+
+  @@unique([tx_hash, log_index]) // 幂等写入：同一交易同一日志索引只落一条
+  @@index([swap_id])
+  @@index([block_number])
+  @@map("swap_events")
+}
+
+// ---------- 9. 池快照 ----------
+model PoolSnapshot {
+  id           String   @id @default(cuid())
+  pool_id      String // FK -> pools.id
+  block_number Int
+  reserve0     Decimal  @db.Decimal(78, 0)
+  reserve1     Decimal  @db.Decimal(78, 0)
+  liquidity    Decimal  @db.Decimal(78, 0)
+  created_at   DateTime @default(now())
+
+  pool Pool @relation(fields: [pool_id], references: [id])
+
+  @@unique([pool_id, block_number]) // 每池每块只保留一份快照
+  @@index([pool_id])
+  @@map("pool_snapshots")
+}
+
+// ---------- 11. 索引同步状态（Sprint 7 Indexer 断点续传 + 重组检测） ----------
+// 每链一条：记录已同步到的区块高度 / 该块 hash，以及最近 N 个区块 hash
+//（JSON 序列化，用于检测区块重组）。Indexer 重启后从此高度继续，不重复扫描。
+model SyncState {
+  chain_id           Int      @id
+  last_synced_block  Int // 已确认同步到的区块高度（不含重组安全窗口）
+  last_synced_hash   String // 已同步区块的 hash
+  recent_block_hashes String // JSON：最近 N 个区块 [{n:number, hash:string}]，供重组检测
+  updated_at         DateTime @updatedAt
+
+  @@map("sync_state")
+}
+
+// ---------- 10. 日度统计 ----------
+model AnalyticsDaily {
+  id                   String   @id @default(cuid())
+  date                 String // YYYY-MM-DD
+  chain_id             Int
+  volume_usd           Decimal  @db.Decimal(78, 0)
+  swap_count           Int
+  unique_users         Int
+  platform_revenue_usd Decimal  @db.Decimal(78, 0)
+  platform_cost_usd    Decimal  @db.Decimal(78, 0)
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@unique([date, chain_id]) // 日度聚合幂等
+  @@index([date])
+  @@map("analytics_daily")
+}
