@@ -107,6 +107,9 @@ export default function DashboardPage() {
             <a href="/monitor" className="text-sm text-gray-500 hover:text-gray-300">
               系统监控
             </a>
+            <a href="/anomaly" className="text-sm text-gray-500 hover:text-gray-300">
+              异常中心
+            </a>
             <select
               value={chainId ?? ""}
               onChange={(e) =>
