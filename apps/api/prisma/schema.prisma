@@ -352,3 +352,22 @@ model ErrorEvent {
   @@index([intent_id])
   @@map("error_events")
 }
+
+// ---------- F. 小时级指标（第四步聚合） ----------
+model AnalyticsHourly {
+  id              String   @id @default(cuid())
+  hour            String // YYYY-MM-DD HH（UTC）
+  chain_id        Int
+  swap_count      Int      @default(0)
+  confirmed_swaps Int      @default(0)
+  failed_swaps    Int      @default(0)
+  unique_users    Int      @default(0)
+  quote_count     Int      @default(0)
+  volume_usd      Decimal  @db.Decimal(78, 0) @default(0)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  @@unique([hour, chain_id])
+  @@index([hour])
+  @@map("analytics_hourly")
+}

@@ -460,6 +460,186 @@ export class AnalyticsService {
     return null;
   }
 
+  // ---------- 小时聚合落库（幂等，第四步） ----------
+
+  /**
+   * 将 swaps + quotes 按小时聚合，幂等 upsert 到 analytics_hourly（@@unique([hour, chain_id])）。
+   *
+   * 口径：
+   * - swap_count：该小时 swaps 总数（全状态）
+   * - confirmed_swaps：status=CONFIRMED
+   * - failed_swaps：status=FAILED + REVERTED
+   * - unique_users：去重 user_address
+   * - quote_count：该小时 quotes 总数
+   * - volume_usd：仅 CONFIRMED 且含 USDC 的交易，取 USDC 侧原始数量（6 decimals）
+   */
+  async aggregateHourly(
+    chainId?: number,
+    from?: string,
+    to?: string,
+  ): Promise<{ generatedAt: string; chainId: number | null; hours: number; upsertedRows: number; note: string }> {
+    this.assertChainIdIfPresent(chainId);
+    const fromDate = this.normalizeDate(from, 'from');
+    const toDate = this.normalizeDate(to, 'to');
+    if (fromDate && toDate && fromDate > toDate) {
+      throw new BadRequestException('from 不能晚于 to');
+    }
+
+    const swapWhere: Prisma.SwapWhereInput = {
+      ...(chainId !== undefined ? { chain_id: chainId } : {}),
+      ...(fromDate || toDate
+        ? {
+            created_at: {
+              ...(fromDate ? { gte: this.startOfDay(fromDate) } : {}),
+              ...(toDate ? { lt: this.nextDay(toDate) } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const swaps = await this.prisma.swap.findMany({
+      where: swapWhere,
+      select: {
+        chain_id: true,
+        user_address: true,
+        status: true,
+        token_in: true,
+        token_out: true,
+        amount_in: true,
+        amount_out: true,
+        created_at: true,
+      },
+      orderBy: { created_at: 'asc' },
+    });
+
+    const quotes = await this.prisma.quote.findMany({
+      where: {
+        ...(chainId !== undefined ? { chain_id: chainId } : {}),
+        ...(fromDate || toDate
+          ? {
+              created_at: {
+                ...(fromDate ? { gte: this.startOfDay(fromDate) } : {}),
+                ...(toDate ? { lt: this.nextDay(toDate) } : {}),
+              },
+            }
+          : {}),
+      },
+      select: { chain_id: true, created_at: true },
+      orderBy: { created_at: 'asc' },
+    });
+
+    interface HourAgg {
+      hour: string;
+      chainId: number;
+      users: Set<string>;
+      swapCount: number;
+      confirmed: number;
+      failed: number;
+      quoteCount: number;
+      volumeUsd: bigint;
+    }
+    const byKey = new Map<string, HourAgg>();
+
+    const hourOf = (d: Date): string => d.toISOString().slice(0, 13); // YYYY-MM-DDTHH
+
+    for (const s of swaps) {
+      const hour = hourOf(s.created_at);
+      const key = `${hour}_${s.chain_id}`;
+      let agg = byKey.get(key);
+      if (!agg) {
+        agg = { hour, chainId: s.chain_id, users: new Set(), swapCount: 0, confirmed: 0, failed: 0, quoteCount: 0, volumeUsd: 0n };
+        byKey.set(key, agg);
+      }
+      agg.swapCount += 1;
+      agg.users.add(s.user_address);
+      if (s.status === SwapStatus.CONFIRMED) {
+        agg.confirmed += 1;
+        const usdRaw = this.usdcSideRaw(s.token_in, s.token_out, s.amount_in, s.amount_out);
+        if (usdRaw !== null) {
+          agg.volumeUsd += usdRaw;
+        }
+      } else if (s.status === SwapStatus.FAILED || s.status === SwapStatus.REVERTED) {
+        agg.failed += 1;
+      }
+    }
+
+    for (const q of quotes) {
+      const hour = hourOf(q.created_at);
+      const key = `${hour}_${q.chain_id}`;
+      let agg = byKey.get(key);
+      if (!agg) {
+        agg = { hour, chainId: q.chain_id, users: new Set(), swapCount: 0, confirmed: 0, failed: 0, quoteCount: 0, volumeUsd: 0n };
+        byKey.set(key, agg);
+      }
+      agg.quoteCount += 1;
+    }
+
+    const d = (v: bigint): Prisma.Decimal => new Prisma.Decimal(v.toString());
+    for (const agg of byKey.values()) {
+      // hour 存为 "YYYY-MM-DD HH"（空格分隔，便于人读与字典序）
+      const hourKey = agg.hour.replace('T', ' ');
+      await this.prisma.analyticsHourly.upsert({
+        where: { hour_chain_id: { hour: hourKey, chain_id: agg.chainId } },
+        update: {
+          swap_count: agg.swapCount,
+          confirmed_swaps: agg.confirmed,
+          failed_swaps: agg.failed,
+          unique_users: agg.users.size,
+          quote_count: agg.quoteCount,
+          volume_usd: d(agg.volumeUsd),
+        },
+        create: {
+          hour: hourKey,
+          chain_id: agg.chainId,
+          swap_count: agg.swapCount,
+          confirmed_swaps: agg.confirmed,
+          failed_swaps: agg.failed,
+          unique_users: agg.users.size,
+          quote_count: agg.quoteCount,
+          volume_usd: d(agg.volumeUsd),
+        },
+      });
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      chainId: chainId ?? null,
+      hours: byKey.size,
+      upsertedRows: byKey.size,
+      note:
+        '按小时聚合 swaps + quotes 到 analytics_hourly（幂等）。volume_usd 仅含 CONFIRMED 且含 USDC 的交易（USDC 侧 6 decimals ≈ USD×1e6）。',
+    };
+  }
+
+  /** 小时级统计查询（预聚合优先，实时回退）。 */
+  async getHourly(
+    chainId?: number,
+    limit?: number,
+  ): Promise<{ generatedAt: string; chainId: number | null; rows: unknown[]; note: string }> {
+    this.assertChainIdIfPresent(chainId);
+    const l = this.normalizeLimit(limit);
+    const rows = await this.prisma.analyticsHourly.findMany({
+      where: chainId !== undefined ? { chain_id: chainId } : {},
+      orderBy: [{ hour: 'desc' }, { chain_id: 'asc' }],
+      take: l,
+    });
+    return {
+      generatedAt: new Date().toISOString(),
+      chainId: chainId ?? null,
+      rows: rows.map((r) => ({
+        hour: r.hour,
+        chainId: r.chain_id,
+        swapCount: r.swap_count,
+        confirmedSwaps: r.confirmed_swaps,
+        failedSwaps: r.failed_swaps,
+        uniqueUsers: r.unique_users,
+        quoteCount: r.quote_count,
+        volumeUsd: r.volume_usd.toString(),
+      })),
+      note: '数据来源 analytics_hourly 预聚合表（POST /analytics/aggregate-hourly 落库）。',
+    };
+  }
+
   // ---------- 协议分布 ----------
 
   /** 各协议（aerodrome_classic / aerodrome_cl）交易量分布，来自 swap_events 原始事件。 */

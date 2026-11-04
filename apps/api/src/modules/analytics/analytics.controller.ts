@@ -67,6 +67,32 @@ export class AnalyticsController {
     );
   }
 
+  /** 触发小时聚合落库（幂等，第四步）。 */
+  @Post('aggregate-hourly')
+  aggregateHourly(
+    @Query('chainId') chainId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.analytics.aggregateHourly(
+      chainId !== undefined ? Number(chainId) : undefined,
+      from,
+      to,
+    );
+  }
+
+  /** 小时级统计查询（第四步）。 */
+  @Get('hourly')
+  hourly(
+    @Query('chainId') chainId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.analytics.getHourly(
+      chainId !== undefined ? Number(chainId) : undefined,
+      limit !== undefined ? Number(limit) : undefined,
+    );
+  }
+
   /** 前端埋点事件上报（Analytics 第三步）。 */
   @Post('events')
   async recordEvent(
