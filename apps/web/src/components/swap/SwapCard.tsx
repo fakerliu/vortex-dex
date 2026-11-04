@@ -11,6 +11,8 @@ import { RouteDetails } from "./RouteDetails";
 import { TokenSelector } from "@/components/token/TokenSelector";
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useQuote } from "@/hooks/useQuote";
+import { useSwapExecution } from "@/hooks/useSwapExecution";
+import { ReviewSwapModal } from "./ReviewSwapModal";
 import {
   DEFAULT_PAY_TOKEN,
   DEFAULT_RECEIVE_TOKEN,
@@ -41,6 +43,7 @@ export function SwapCard() {
   const [slippageBps, setSlippageBps] = useState(50);
   const [slippageOpen, setSlippageOpen] = useState(false);
   const [routeOpen, setRouteOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   const balance = useTokenBalance(payToken);
 
@@ -69,6 +72,13 @@ export function SwapCard() {
   }, [hasAmount, sameToken, payToken, receiveToken, parsedAmount, slippageBps]);
 
   const quote = useQuote(quoteParams);
+
+  const execution = useSwapExecution(
+    hasAmount ? payToken : null,
+    hasAmount ? receiveToken : null,
+    hasAmount ? parsedAmount.toString() : "0",
+    slippageBps,
+  );
 
   const state = useMemo<SwapButtonState>(() => {
     if (!isConnected) return { kind: "connect" };
@@ -257,8 +267,25 @@ export function SwapCard() {
           onToggle={() => setRouteOpen((v) => !v)}
         />
 
-        <SwapButton state={state} />
+        <SwapButton
+          state={state}
+          onReview={() => {
+            setReviewOpen(true);
+            void execution.start();
+          }}
+        />
       </Card>
+
+      <ReviewSwapModal
+        open={reviewOpen}
+        onClose={() => {
+          setReviewOpen(false);
+          execution.reset();
+        }}
+        execution={execution}
+        payToken={payToken}
+        receiveToken={receiveToken}
+      />
 
       <TokenSelector
         open={selector !== null}

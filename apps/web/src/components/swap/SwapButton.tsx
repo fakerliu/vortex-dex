@@ -9,8 +9,18 @@ import { SWAP_BUTTON_LABELS, type SwapButtonState } from "./swapState";
  * 未连接 → Connect Wallet；未输入 → Enter Amount；Token 相同 → Select Different Token；
  * 余额不足 → Insufficient Balance；报价加载 → Getting Quote...；
  * 网络错误 → Switch Network；需要授权 → Approve Token；已授权 → Review Swap。
+ *
+ * review / approve 分支通过 onReview / onApprove 回调交给上层（打开 ReviewSwapModal / 触发执行）。
  */
-export function SwapButton({ state }: { state: SwapButtonState }) {
+export function SwapButton({
+  state,
+  onReview,
+  onApprove,
+}: {
+  state: SwapButtonState;
+  onReview?: () => void;
+  onApprove?: () => void;
+}) {
   const { connect, connectors } = useConnect();
   const { switchChain } = useSwitchChain();
 
@@ -24,13 +34,21 @@ export function SwapButton({ state }: { state: SwapButtonState }) {
       switchChain({ chainId: state.chainId });
       return;
     }
-    // approve / review 在 Phase 2 接入报价与合约后实现
+    if (state.kind === "review") {
+      onReview?.();
+      return;
+    }
+    if (state.kind === "approve") {
+      onApprove?.();
+      return;
+    }
   };
 
   const actionable =
     state.kind === "connect" ||
     state.kind === "switch-network" ||
-    state.kind === "review";
+    state.kind === "review" ||
+    state.kind === "approve";
 
   const loading =
     state.kind === "getting-quote" || state.kind === "approve";
