@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useAccount } from "wagmi";
 import { ArrowRight, ExternalLink, ReceiptText, Wallet } from "lucide-react";
 import { useSwapHistory } from "@/hooks/useSwapHistory";
@@ -82,53 +83,60 @@ function HistoryRow({ record }: { record: SwapHistoryRecord }) {
   const outSymbol = symbolFor(record.tokenOut, record.chainId);
 
   return (
-    <li className="flex flex-col gap-3 border-b border-gray-100 py-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-center gap-3">
-        <div className="flex items-center">
-          <TokenIcon
-            logoURI={tokenIn?.logoURI}
-            symbol={inSymbol}
-            size={28}
-          />
-          <TokenIcon
-            logoURI={tokenOut?.logoURI}
-            symbol={outSymbol}
-            size={28}
-            className="-ml-2 border-2 border-white"
-          />
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
-            <span>{inSymbol}</span>
-            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden />
-            <span>{outSymbol}</span>
+    <li className="group relative border-b border-gray-100 py-4 transition-colors last:border-b-0 hover:bg-gray-50">
+      <Link
+        href={`/transactions/${record.id}`}
+        className="absolute inset-0 z-0"
+        aria-label={`View details: ${inSymbol} to ${outSymbol}`}
+      />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center">
+            <TokenIcon
+              logoURI={tokenIn?.logoURI}
+              symbol={inSymbol}
+              size={28}
+            />
+            <TokenIcon
+              logoURI={tokenOut?.logoURI}
+              symbol={outSymbol}
+              size={28}
+              className="-ml-2 border-2 border-white"
+            />
           </div>
-          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-gray-500">
-            <a
-              href={record.explorerUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 font-mono text-gray-500 transition-colors hover:text-accent-500"
-            >
-              {truncateAddress(record.txHash, 6)}
-              <ExternalLink className="h-3 w-3" aria-hidden />
-            </a>
-            <span aria-hidden>·</span>
-            <time dateTime={record.timestamp}>{formatTime(record.timestamp)}</time>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+              <span>{inSymbol}</span>
+              <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden />
+              <span>{outSymbol}</span>
+            </div>
+            <div className="mt-0.5 flex items-center gap-1.5 text-xs text-gray-500">
+              <a
+                href={record.explorerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative z-10 flex items-center gap-1 font-mono text-gray-500 transition-colors hover:text-accent-500"
+              >
+                {truncateAddress(record.txHash, 6)}
+                <ExternalLink className="h-3 w-3" aria-hidden />
+              </a>
+              <span aria-hidden>·</span>
+              <time dateTime={record.timestamp}>{formatTime(record.timestamp)}</time>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="flex items-center gap-3 sm:flex-col sm:items-end sm:gap-1.5">
-        <div className="text-right text-sm tabular-nums">
-          <div className="text-gray-500">
-            −{formatRecordAmount(record, "in")} {inSymbol}
+        <div className="flex items-center gap-3 sm:flex-col sm:items-end sm:gap-1.5">
+          <div className="text-right text-sm tabular-nums">
+            <div className="text-gray-500">
+              −{formatRecordAmount(record, "in")} {inSymbol}
+            </div>
+            <div className="font-medium text-gray-900">
+              +{formatRecordAmount(record, "out")} {outSymbol}
+            </div>
           </div>
-          <div className="font-medium text-gray-900">
-            +{formatRecordAmount(record, "out")} {outSymbol}
-          </div>
+          <Badge variant={meta.variant}>{meta.label}</Badge>
         </div>
-        <Badge variant={meta.variant}>{meta.label}</Badge>
       </div>
     </li>
   );

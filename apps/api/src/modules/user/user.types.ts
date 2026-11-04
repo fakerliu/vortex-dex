@@ -1,4 +1,5 @@
 import type { User } from '@prisma/client';
+import type { DataAuthenticity } from '../../common/constants/data-authenticity';
 
 /**
  * 用户系统 DTO（Sprint 8 交易记录与用户系统）。
@@ -67,4 +68,38 @@ export interface UserSwapListResult {
   page: number;
   limit: number;
   total: number;
+}
+
+/**
+ * 资产中心（Portfolio）：单个 token 的余额 + USD 估值。
+ * 金额铁律：balance 为链上原始大整数字符串，balanceFormatted / priceUsd /
+ * valueUsd 一律为十进制字符串，由 BigInt 定点运算推导，绝不使用 Float。
+ */
+export interface PortfolioTokenDto {
+  chainId: number;
+  address: string; // 小写规范化
+  symbol: string | null;
+  name: string | null;
+  decimals: number;
+  logoURI: string | null;
+  /** 链上原始大整数（字符串）。 */
+  balance: string;
+  /** 按 decimals 格式化的十进制字符串。 */
+  balanceFormatted: string;
+  /** 来自 MarketService 的 USD 价格（十进制字符串），无价格时为 null。 */
+  priceUsd: string | null;
+  /** balanceFormatted × priceUsd（BigInt 定点，十进制字符串），无价格时为 null。 */
+  valueUsd: string | null;
+  /** 价格真实度：REAL_ONCHAIN / UNAVAILABLE。 */
+  authenticity: DataAuthenticity;
+}
+
+/** GET /api/v1/users/:address/portfolio 的响应结构。 */
+export interface PortfolioDto {
+  address: string; // 小写规范化
+  chainId: number;
+  /** 只含 balance > 0 的 token。 */
+  items: PortfolioTokenDto[];
+  /** 所有非 null valueUsd 之和（BigInt 定点，十进制字符串），全部无价时为 null。 */
+  totalValueUsd: string | null;
 }

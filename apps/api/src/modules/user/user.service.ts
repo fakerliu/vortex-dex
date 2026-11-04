@@ -6,7 +6,21 @@ import {
 import type { SwapEvent, User } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { isValidAddress, normalizeAddress } from '../../chain/address';
-import { buildExplorerTxUrl, isSupportedChainId } from '../../chain/chain.constants';
+import {
+  BASE_MAINNET_CHAIN_ID,
+  BASE_SEPOLIA_CHAIN_ID,
+  buildExplorerTxUrl,
+  isSupportedChainId,
+} from '../../chain/chain.constants';
+import { Erc20ReaderService } from '../../chain/erc20-reader.service';
+import {
+  BASE_MAINNET_TOKENS,
+  BASE_SEPOLIA_TOKENS,
+} from '../../chain/token-catalog';
+import { parseDecimal } from '../../dex/math';
+import { formatUnits } from '../../common/utils/units';
+import { DataAuthenticity } from '../../common/constants/data-authenticity';
+import { MarketService } from '../market/market.service';
 import { INDEXER_CHAIN_ID } from '../../indexer/indexer.constants';
 import { SwapStatus, isTerminalStatus } from '../swap/swap.types';
 import {
@@ -16,6 +30,8 @@ import {
 } from '../swap/swap-event.util';
 import {
   toUserProfileDto,
+  type PortfolioDto,
+  type PortfolioTokenDto,
   type UserProfileDto,
   type UserStats,
   type UserSwapListResult,
@@ -25,6 +41,27 @@ import {
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+
+/** USD 估值定点小数位数（指数，BigInt 定点运算，禁 Float）。 */
+const VALUE_DECIMALS = 18n;
+/** 10^VALUE_DECIMALS 定点基数（乘法回退精度用）。 */
+const VALUE_BASE = 10n ** VALUE_DECIMALS;
+
+/** 定点小数乘法：a × b（18 位精度），输出十进制字符串去尾零。 */
+function mulDecimal(a: string, b: string): string {
+  const x = parseDecimal(a, VALUE_DECIMALS);
+  const y = parseDecimal(b, VALUE_DECIMALS);
+  return formatUnits(((x * y) / VALUE_BASE).toString(), 18);
+}
+
+/** Portfolio 聚合所需的 token 元信息（目录 ∪ DB，合并去重）。 */
+interface PortfolioTokenMeta {
+  address: string; // 小写
+  symbol: string | null;
+  name: string | null;
+  decimals: number;
+  logoURI: string | null;
+}
 
 /**
  * 用户系统（Sprint 8 交易记录与用户系统）。
@@ -41,7 +78,11 @@ const MAX_LIMIT = 100;
 export class UserService {
   private readonly logger = new Logger(UserService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly erc20: Erc20ReaderService,
+    private readonly market: MarketService,
+  ) {}
 
   /** 幂等注册 / 获取用户，返回档案。 */
   async register(walletAddress: string): Promise<UserProfileDto> {
@@ -185,6 +226,100 @@ export class UserService {
     return { items, page: p, limit: l, total };
   }
 
+  // ---------- 资产中心（Portfolio） ----------
+
+  /**
+   * 查询钱包在指定链上的多 token 余额 + USD 估值。
+   *
+   * 遍历「token 目录 ∪ DB Token 表」合并去重后的所有 token，逐个读链上余额，
+   * 只保留 balance > 0 的 token，并对每个有余额的 token 调用 MarketService 拿
+   * 价格，用 BigInt 定点运算计算 valueUsd = balanceFormatted × priceUsd。
+   *
+   * 降级策略：单个 token 读余额 / 读价格失败不抛 500，失败的余额跳过、
+   * 失败的价格置 null + authenticity=UNAVAILABLE，至少返回能读到的 token。
+   */
+  async getPortfolio(
+    walletAddress: string,
+    chainId?: number,
+  ): Promise<PortfolioDto> {
+    const address = this.assertAddress(walletAddress);
+    const resolvedChainId = this.resolveChainId(chainId);
+
+    const tokens = await this.loadPortfolioTokens(resolvedChainId);
+    const items: PortfolioTokenDto[] = [];
+
+    for (const token of tokens) {
+      // 1) 读余额：单个失败跳过，不拖垮整体
+      let balance: bigint;
+      try {
+        balance = await this.erc20.readBalance(
+          resolvedChainId,
+          token.address,
+          address,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Portfolio 读余额失败（chain=${resolvedChainId} token=${token.address}）: ${this.errMsg(err)}`,
+        );
+        continue;
+      }
+      if (balance <= 0n) {
+        continue;
+      }
+
+      const balanceFormatted = formatUnits(balance.toString(), token.decimals);
+
+      // 2) 读价格：失败 → priceUsd=null / valueUsd=null / authenticity=UNAVAILABLE，token 仍保留
+      let priceUsd: string | null = null;
+      let authenticity: DataAuthenticity = DataAuthenticity.UNAVAILABLE;
+      let valueUsd: string | null = null;
+      try {
+        const price = await this.market.getTokenPrice(
+          resolvedChainId,
+          token.address,
+        );
+        priceUsd = price.priceUsd;
+        authenticity = price.authenticity;
+        if (priceUsd !== null) {
+          valueUsd = mulDecimal(balanceFormatted, priceUsd);
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Portfolio 读价格失败（chain=${resolvedChainId} token=${token.address}）: ${this.errMsg(err)}`,
+        );
+      }
+
+      items.push({
+        chainId: resolvedChainId,
+        address: token.address,
+        symbol: token.symbol,
+        name: token.name,
+        decimals: token.decimals,
+        logoURI: token.logoURI,
+        balance: balance.toString(),
+        balanceFormatted,
+        priceUsd,
+        valueUsd,
+        authenticity,
+      });
+    }
+
+    // 3) 汇总 totalValueUsd（BigInt 定点求和）
+    let totalScaled = 0n;
+    let hasValue = false;
+    for (const item of items) {
+      if (item.valueUsd !== null) {
+        totalScaled += parseDecimal(item.valueUsd, VALUE_DECIMALS);
+        hasValue = true;
+      }
+    }
+    const totalValueUsd = hasValue
+      ? formatUnits(totalScaled.toString(), 18)
+      : null;
+
+    return { address, chainId: resolvedChainId, items, totalValueUsd };
+  }
+
   // ---------- 统计 ----------
 
   private async stats(address: string): Promise<UserStats> {
@@ -309,6 +444,64 @@ export class UserService {
     }
   }
 
+  // ---------- Portfolio 数据加载 ----------
+
+  /** 合并「token 目录 ∪ DB Token 表」并按地址去重（目录优先，decimals 最可信）。 */
+  private async loadPortfolioTokens(
+    chainId: number,
+  ): Promise<PortfolioTokenMeta[]> {
+    const byAddress = new Map<string, PortfolioTokenMeta>();
+
+    // 1) token 目录（优先）
+    const catalogTokens =
+      chainId === BASE_SEPOLIA_CHAIN_ID
+        ? BASE_SEPOLIA_TOKENS
+        : BASE_MAINNET_TOKENS;
+    for (const t of catalogTokens) {
+      const address = normalizeAddress(t.address);
+      byAddress.set(address, {
+        address,
+        symbol: t.symbol,
+        name: t.name,
+        decimals: t.decimals,
+        logoURI: t.logoURI ?? null,
+      });
+    }
+
+    // 2) DB Token 表（仅补目录没有的地址）
+    try {
+      const rows = await this.prisma.token.findMany({
+        where: { chain_id: chainId },
+        select: {
+          address: true,
+          symbol: true,
+          name: true,
+          decimals: true,
+          logo_uri: true,
+        },
+      });
+      for (const row of rows) {
+        const address = normalizeAddress(row.address);
+        if (byAddress.has(address)) {
+          continue;
+        }
+        byAddress.set(address, {
+          address,
+          symbol: row.symbol,
+          name: row.name,
+          decimals: row.decimals,
+          logoURI: row.logo_uri ?? null,
+        });
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Portfolio 读取 Token 表失败（chain=${chainId}）: ${this.errMsg(err)}`,
+      );
+    }
+
+    return [...byAddress.values()];
+  }
+
   // ---------- 校验 ----------
 
   private assertAddress(address: string): string {
@@ -324,6 +517,17 @@ export class UserService {
         `不支持的 chainId: ${chainId}（支持 8453 / 84532）`,
       );
     }
+  }
+
+  /** 解析 chainId（默认 Base Mainnet）并校验合法性。 */
+  private resolveChainId(chainId?: number): number {
+    const resolved = chainId ?? BASE_MAINNET_CHAIN_ID;
+    if (!isSupportedChainId(resolved)) {
+      throw new BadRequestException(
+        `不支持的 chainId: ${resolved}（支持 8453 / 84532）`,
+      );
+    }
+    return resolved;
   }
 
   private normalizePage(page?: number): number {

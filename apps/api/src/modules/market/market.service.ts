@@ -58,9 +58,10 @@ function referenceAmount(decimals: number): string {
  */
 function mulDecimal(a: string, b: string): string {
   const scale = 18n;
-  const x = parseDecimal(a, scale);
-  const y = parseDecimal(b, scale);
-  return formatUnits(((x * y) / scale).toString(), 18);
+  const x = parseDecimal(a, scale); // a × 10^18
+  const y = parseDecimal(b, scale); // b × 10^18
+  // x*y = a·b × 10^36，除以 10^18 回到 18 位定点，再 formatUnits 输出十进制字符串
+  return formatUnits(((x * y) / (10n ** scale)).toString(), 18);
 }
 
 /**

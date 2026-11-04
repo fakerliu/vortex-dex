@@ -2,6 +2,7 @@ import type {
   PrepareSwapParams,
   PrepareSwapResult,
   SubmitSwapParams,
+  SwapDetail,
   SwapRecord,
 } from "@/types/swap";
 import type { SwapHistoryParams, SwapHistoryResult } from "@/types/history";
@@ -51,6 +52,15 @@ const HISTORY_ERROR_MESSAGES: Record<string, string> = {
   NOT_FOUND: "No transaction history is available for this wallet.",
   SERVICE_UNAVAILABLE: "History service is temporarily unavailable.",
   INTERNAL_ERROR: "History service error. Please try again.",
+};
+
+/** 交易详情接口错误码 -> 用户可读文案。 */
+const DETAIL_ERROR_MESSAGES: Record<string, string> = {
+  BAD_REQUEST: "Invalid transaction identifier.",
+  VALIDATION_ERROR: "Invalid transaction identifier.",
+  NOT_FOUND: "Transaction not found.",
+  SERVICE_UNAVAILABLE: "Transaction detail service is temporarily unavailable.",
+  INTERNAL_ERROR: "Transaction detail service error. Please try again.",
 };
 
 function userMessage(
@@ -211,4 +221,17 @@ export async function getSwapHistory(
     ...(params.limit !== undefined ? { limit: params.limit } : {}),
     ...(params.chainId !== undefined ? { chainId: params.chainId } : {}),
   });
+}
+
+/**
+ * 单笔交易详情：GET ${NEXT_PUBLIC_API_BASE_URL}/swaps/:id。
+ * id 为 swap 记录 id（非 txHash），返回含链上回执/gas/失败原因/关联事件/浏览器链接的增强详情。
+ */
+export async function getSwapDetail(id: string): Promise<SwapDetail> {
+  return request<SwapDetail>(
+    `${apiBaseOrThrow()}/swaps/${id}`,
+    { method: "GET" },
+    DETAIL_ERROR_MESSAGES,
+    "Transaction detail request failed",
+  );
 }

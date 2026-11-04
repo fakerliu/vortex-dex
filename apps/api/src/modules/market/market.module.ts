@@ -19,5 +19,6 @@ import { MarketService } from './market.service';
   imports: [DexModule],
   controllers: [MarketController],
   providers: [MarketService, MarketRankingService],
+  exports: [MarketService],
 })
 export class MarketModule {}

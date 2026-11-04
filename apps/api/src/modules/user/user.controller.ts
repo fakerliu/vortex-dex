@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { UserService } from './user.service';
 import type {
+  PortfolioDto,
   UserProfileDto,
   UserSwapListResult,
 } from './user.types';
@@ -10,6 +11,7 @@ import type {
  * - POST /api/v1/users                 ：注册 / 获取用户（幂等）
  * - GET  /api/v1/users/:address        ：钱包识别 + 交易统计
  * - GET  /api/v1/users/:address/swaps  ：用户交易列表（分页，时间倒序）
+ * - GET  /api/v1/users/:address/portfolio：资产中心（多 token 余额 + USD 估值）
  */
 @Controller('users')
 export class UserController {
@@ -32,6 +34,17 @@ export class UserController {
       chainId !== undefined ? Number(chainId) : undefined,
       page !== undefined ? Number(page) : undefined,
       limit !== undefined ? Number(limit) : undefined,
+    );
+  }
+
+  @Get(':address/portfolio')
+  portfolio(
+    @Param('address') address: string,
+    @Query('chainId') chainId?: string,
+  ): Promise<PortfolioDto> {
+    return this.userService.getPortfolio(
+      address,
+      chainId !== undefined ? Number(chainId) : undefined,
     );
   }
 

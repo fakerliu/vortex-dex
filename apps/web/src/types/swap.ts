@@ -130,6 +130,59 @@ export interface SwapRecord {
   confirmedAt: string | null;
 }
 
+/** 与某交易关联的链上原始事件（swap_events，按 log_index 升序）。 */
+export interface SwapChainEvent {
+  id: string;
+  eventType: string;
+  blockNumber: number;
+  logIndex: number;
+  pool: string | null;
+  protocolType: string | null;
+  family: string | null;
+  tokenIn: string | null;
+  tokenOut: string | null;
+  amountIn: string | null;
+  amountOut: string | null;
+  sender: string | null;
+  recipient: string | null;
+}
+
+/**
+ * 单笔交易详情（GET /api/v1/swaps/:id 的 data 部分，Sprint 8 增强）。
+ * 注意：后端 getSwap 只返回 SwapDto 基础字段 + 下列链上增强字段，
+ * 不含 tokenInMeta/tokenOutMeta（symbol/decimals 由前端经 config/tokens 解析）。
+ */
+export interface SwapDetail {
+  id: string;
+  userAddress: string;
+  tokenIn: string;
+  tokenOut: string;
+  amountIn: string;
+  amountOut: string;
+  txHash: string;
+  status: SwapStatus;
+  chainId: number;
+  createdAt: string;
+  confirmedAt: string | null;
+  /** 链上确认区块高度（未确认时为 null）。 */
+  blockNumber: number | null;
+  /** 链上回执 gasUsed（原始大整数字符串；无回执时为 null）。 */
+  gasUsed: string | null;
+  /** effectiveGasPrice（wei 字符串；无回执时为 null）。 */
+  effectiveGasPrice: string | null;
+  /** 失败原因（revert 时为原因字符串；成功/未知为 null）。 */
+  failureReason: string | null;
+  /** 区块浏览器交易链接（后端已拼好完整 URL）。 */
+  explorerUrl: string;
+  /** 关联链上原始事件（按 log_index 升序）。 */
+  chainEvents: SwapChainEvent[];
+  /** 状态同步说明（依据回执 / indexer / 无 / RPC 错误）。 */
+  statusSync: {
+    source: "receipt" | "indexer" | "none" | "rpc_error";
+    syncedAt: string;
+  };
+}
+
 /** 判断是否已进入终态。 */
 export function isTerminalSwapStatus(status: string): boolean {
   return (
