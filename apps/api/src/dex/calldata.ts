@@ -14,11 +14,13 @@ import {
   aerodromeClassicRouterAbi,
   aerodromeSwapRouterAbi,
 } from './aerodrome/abis';
+import { uniswapV3SwapRouterAbi } from './uniswap-v3/abis';
 import {
   AERODROME_CLASSIC_FACTORY,
   AERODROME_CLASSIC_ROUTER,
   AERODROME_SWAP_ROUTER,
 } from './aerodrome/constants';
+import { UNISWAP_V3_SWAP_ROUTER } from './uniswap-v3/constants';
 
 /** classic Router 的 Route 结构体（Velodrome v2 / Solidly 风格）。 */
 export interface ClassicRoute {
@@ -275,6 +277,109 @@ export function encodeClPath(
     }
     const ts = BigInt(h.tickSpacing) & 0xffffffn;
     hex += ts.toString(16).padStart(6, '0');
+    hex += strip(h.tokenOut);
+  }
+  return `0x${hex}`;
+}
+
+/**
+ * Uniswap V3：单跳集中流动性交易。
+ * 用 exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160))。
+ * selector = 0x414bf389（Uniswap 标准；注意第 3 字段是 uint24 fee，不是 Aerodrome 的 int24 tickSpacing）。
+ */
+export function buildUniswapV3ExactInputSingle(p: {
+  tokenIn: string;
+  tokenOut: string;
+  /** uint24 fee tier（100/500/3000/10000）。 */
+  fee: number;
+  recipient: string;
+  deadline: number;
+  amountIn: string;
+  amountOutMinimum: string;
+  /** uint160 价格上限，0 表示不设限。 */
+  sqrtPriceLimitX96?: string;
+}): BuiltTransaction {
+  const data = encodeFunctionData({
+    abi: uniswapV3SwapRouterAbi,
+    functionName: 'exactInputSingle',
+    args: [
+      {
+        tokenIn: toAddr(p.tokenIn),
+        tokenOut: toAddr(p.tokenOut),
+        fee: p.fee,
+        recipient: toAddr(p.recipient),
+        deadline: BigInt(p.deadline),
+        amountIn: BigInt(p.amountIn),
+        amountOutMinimum: BigInt(p.amountOutMinimum),
+        sqrtPriceLimitX96: BigInt(p.sqrtPriceLimitX96 ?? '0'),
+      },
+    ],
+  });
+  return {
+    to: UNISWAP_V3_SWAP_ROUTER.toLowerCase(),
+    value: '0',
+    data,
+    functionName: 'exactInputSingle',
+    selector: selectorOf(data),
+  };
+}
+
+/**
+ * Uniswap V3：多跳集中流动性交易（bytes path）。
+ * 用 exactInput((bytes,address,uint256,uint256,uint256))。
+ * selector = 0xc04b8d59。
+ */
+export function buildUniswapV3ExactInput(p: {
+  /** 已编码的 bytes path（token + fee 交替）。 */
+  path: string;
+  recipient: string;
+  deadline: number;
+  amountIn: string;
+  amountOutMinimum: string;
+}): BuiltTransaction {
+  const data = encodeFunctionData({
+    abi: uniswapV3SwapRouterAbi,
+    functionName: 'exactInput',
+    args: [
+      {
+        path: p.path as `0x${string}`,
+        recipient: toAddr(p.recipient),
+        deadline: BigInt(p.deadline),
+        amountIn: BigInt(p.amountIn),
+        amountOutMinimum: BigInt(p.amountOutMinimum),
+      },
+    ],
+  });
+  return {
+    to: UNISWAP_V3_SWAP_ROUTER.toLowerCase(),
+    value: '0',
+    data,
+    functionName: 'exactInput',
+    selector: selectorOf(data),
+  };
+}
+
+/**
+ * Uniswap V3 多跳 bytes path 编码（Path.sol 布局）。
+ *
+ *   token0(20B) + fee0(3B) + token1(20B) + fee1(3B) + token2(20B) + ...
+ *
+ * 3 字节池维度是 uint24 fee（不是 Aerodrome 的 int24 tickSpacing），大端编码。
+ */
+export function encodeUniswapV3Path(
+  hops: { tokenIn: string; tokenOut: string; fee: number }[],
+): string {
+  if (hops.length === 0) {
+    throw new Error('encodeUniswapV3Path: hops 不能为空');
+  }
+  const strip = (a: string): string => a.toLowerCase().replace(/^0x/, '');
+  let hex = strip(hops[0].tokenIn);
+  for (const h of hops) {
+    if (!Number.isInteger(h.fee) || h.fee < 0 || h.fee > 0xffffff) {
+      throw new Error(`encodeUniswapV3Path: 非法 fee=${h.fee}（超出 uint24 范围）`);
+    }
+    const fee = BigInt(h.fee) & 0xffffffn;
+    hex += fee.toString(16).padStart(6, '0');
     hex += strip(h.tokenOut);
   }
   return `0x${hex}`;

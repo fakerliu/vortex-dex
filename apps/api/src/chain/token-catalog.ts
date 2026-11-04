@@ -5,7 +5,7 @@
  * - seed 脚本据此把 7 个真实 Token 写入数据库
  * - TokenService.upsertToken 据此打 verified / risk 标记
  */
-import { BASE_MAINNET_CHAIN_ID } from './chain.constants';
+import { BASE_MAINNET_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID } from './chain.constants';
 
 export interface TokenCatalogEntry {
   chainId: number;
@@ -88,12 +88,42 @@ export const BASE_MAINNET_TOKENS: TokenCatalogEntry[] = [
   },
 ].map((t) => ({ ...t, logoURI: twLogo(t.address) }));
 
+/**
+ * Base Sepolia（84532）精选代币目录（真实合约地址，已由 team-lead 用 cast 核验）。
+ * 用于测试网真机闭环：WETH + USDC(测试)。
+ */
+export const BASE_SEPOLIA_TOKENS: TokenCatalogEntry[] = [
+  {
+    chainId: BASE_SEPOLIA_CHAIN_ID,
+    address: '0x4200000000000000000000000000000000000006',
+    symbol: 'WETH',
+    name: 'Wrapped Ether',
+    decimals: 18,
+    verified: true,
+    risk: false,
+  },
+  {
+    chainId: BASE_SEPOLIA_CHAIN_ID,
+    address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+    symbol: 'USDC',
+    name: 'USD Coin',
+    decimals: 6,
+    verified: true,
+    risk: false,
+  },
+].map((t) => ({ ...t, logoURI: twLogo(t.address) }));
+
+const ALL_CATALOG_TOKENS: TokenCatalogEntry[] = [
+  ...BASE_MAINNET_TOKENS,
+  ...BASE_SEPOLIA_TOKENS,
+];
+
 export function getCatalogEntry(
   chainId: number,
   address: string,
 ): TokenCatalogEntry | undefined {
   const lower = address.toLowerCase();
-  return BASE_MAINNET_TOKENS.find(
+  return ALL_CATALOG_TOKENS.find(
     (t) => t.chainId === chainId && t.address.toLowerCase() === lower,
   );
 }

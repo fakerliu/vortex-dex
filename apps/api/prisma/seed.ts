@@ -17,6 +17,7 @@ import { createPublicClient, erc20Abi, http, type PublicClient } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
 import {
   BASE_MAINNET_TOKENS,
+  BASE_SEPOLIA_TOKENS,
   type TokenCatalogEntry,
 } from '../src/chain/token-catalog';
 import { DEFAULT_RPC_URLS } from '../src/chain/chain.constants';
@@ -112,8 +113,9 @@ async function upsertOne(entry: TokenCatalogEntry): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  console.log(`[seed] 开始写入 ${BASE_MAINNET_TOKENS.length} 个 Base Mainnet Token...`);
-  for (const entry of BASE_MAINNET_TOKENS) {
+  const allTokens = [...BASE_MAINNET_TOKENS, ...BASE_SEPOLIA_TOKENS];
+  console.log(`[seed] 开始写入 ${allTokens.length} 个 Token（Base Mainnet + Sepolia）...`);
+  for (const entry of allTokens) {
     await upsertOne(entry);
   }
 

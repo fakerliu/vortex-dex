@@ -117,5 +117,8 @@ function protocolNameOf(protocolType: string): string {
   if (protocolType === 'aerodrome_classic' || protocolType === 'aerodrome_cl') {
     return 'Aerodrome';
   }
+  if (protocolType === 'uniswap_v3') {
+    return 'Uniswap V3';
+  }
   return protocolType;
 }

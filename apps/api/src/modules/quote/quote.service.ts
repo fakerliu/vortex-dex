@@ -16,11 +16,15 @@ import {
 } from '../../chain/chain.constants';
 import { isValidAddress, normalizeAddress } from '../../chain/address';
 import { ErrorCodes } from '../../common/constants/error-codes';
-import { DexPoolService } from '../../dex/dex-pool.service';
+import { DexPoolService, type PoolQuoteCandidate } from '../../dex/dex-pool.service';
 import {
   AERODROME_PROTOCOL_TYPE_CL,
   AERODROME_PROTOCOL_TYPE_CLASSIC,
 } from '../../dex/aerodrome/constants';
+import {
+  UNISWAP_V3_CHAIN_ID,
+  UNISWAP_V3_PROTOCOL_TYPE,
+} from '../../dex/uniswap-v3/constants';
 import { formatPrice, parseAmount } from '../../dex/math';
 import type { QuoteRequestDto, QuoteResponseDto } from './quote.types';
 import { toQuoteResponseDto } from './quote.types';
@@ -74,46 +78,8 @@ export class QuoteService {
       this.resolveDecimals(chainId, tokenOut),
     ]);
 
-    // 2. 发现可用池（按协议白名单过滤）
-    const useClassic = this.protocolAllowed(req.protocols, AERODROME_PROTOCOL_TYPE_CLASSIC);
-    const useCl = this.protocolAllowed(req.protocols, AERODROME_PROTOCOL_TYPE_CL);
-    let classicPools;
-    let clPools;
-    try {
-      ({ classicPools, clPools } = await this.poolService.discoverPools(
-        tokenIn,
-        tokenOut,
-        useClassic,
-        useCl,
-      ));
-    } catch (err) {
-      throw this.toRpcException(err);
-    }
-
-    // 3. 逐池报价（单池失败跳过，不拖垮整体）
-    const candidates = await this.poolService.quotePair(
-      chainId,
-      tokenIn,
-      tokenOut,
-      req.amountIn,
-      classicPools,
-      clPools,
-    );
-
-    if (candidates.length === 0) {
-      throw new HttpException(
-        {
-          code: ErrorCodes.NO_ROUTE,
-          message: `无可用流动性池或所有池报价失败（${tokenIn} -> ${tokenOut}，chain=${chainId}）`,
-        },
-        HttpStatus.NOT_FOUND,
-      );
-    }
-
-    // 4. 选最优（最大 amountOut）
-    const best = candidates.reduce((a, b) =>
-      BigInt(a.quote.amountOut) >= BigInt(b.quote.amountOut) ? a : b,
-    );
+    // 2. 发现可用池并选最优候选（按链分派：84532 → Uniswap V3，8453 → Aerodrome）
+    const best = await this.resolveBestCandidate(chainId, tokenIn, tokenOut, req);
 
     // 5. 派生字段（全部 BigInt / 字符串）
     const amountOut = BigInt(best.quote.amountOut);
@@ -218,6 +184,88 @@ export class QuoteService {
       return true;
     }
     return protocols.map((p) => p.toLowerCase()).includes(protocolType);
+  }
+
+  /** 发现池 + 选最优候选（84532 走 Uniswap V3，8453 走 Aerodrome）。 */
+  private async resolveBestCandidate(
+    chainId: number,
+    tokenIn: string,
+    tokenOut: string,
+    req: QuoteRequestDto,
+  ): Promise<PoolQuoteCandidate> {
+    const amountIn = req.amountIn;
+
+    if (chainId === UNISWAP_V3_CHAIN_ID) {
+      const useUniswapV3 = this.protocolAllowed(req.protocols, UNISWAP_V3_PROTOCOL_TYPE);
+      if (!useUniswapV3) {
+        throw new HttpException(
+          {
+            code: ErrorCodes.NO_ROUTE,
+            message: `chain=${chainId} 无可用协议（请求 protocols 未包含 ${UNISWAP_V3_PROTOCOL_TYPE}）`,
+          },
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      try {
+        const best = await this.poolService.quoteBestUniswapV3(
+          chainId,
+          tokenIn,
+          tokenOut,
+          amountIn,
+        );
+        if (!best) {
+          throw new HttpException(
+            {
+              code: ErrorCodes.NO_ROUTE,
+              message: `无可用 Uniswap V3 流动性池（${tokenIn} -> ${tokenOut}，chain=${chainId}）`,
+            },
+            HttpStatus.NOT_FOUND,
+          );
+        }
+        return best;
+      } catch (err) {
+        if (err instanceof HttpException) {
+          throw err;
+        }
+        throw this.toRpcException(err);
+      }
+    }
+
+    const useClassic = this.protocolAllowed(req.protocols, AERODROME_PROTOCOL_TYPE_CLASSIC);
+    const useCl = this.protocolAllowed(req.protocols, AERODROME_PROTOCOL_TYPE_CL);
+    let classicPools;
+    let clPools;
+    try {
+      ({ classicPools, clPools } = await this.poolService.discoverPools(
+        tokenIn,
+        tokenOut,
+        useClassic,
+        useCl,
+      ));
+    } catch (err) {
+      throw this.toRpcException(err);
+    }
+
+    const candidates = await this.poolService.quotePair(
+      chainId,
+      tokenIn,
+      tokenOut,
+      amountIn,
+      classicPools,
+      clPools,
+    );
+    if (candidates.length === 0) {
+      throw new HttpException(
+        {
+          code: ErrorCodes.NO_ROUTE,
+          message: `无可用流动性池或所有池报价失败（${tokenIn} -> ${tokenOut}，chain=${chainId}）`,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return candidates.reduce((a, b) =>
+      BigInt(a.quote.amountOut) >= BigInt(b.quote.amountOut) ? a : b,
+    );
   }
 
   /** 读取 token decimals：DB 优先，缺失走链上（区分「非 ERC20」400 与「RPC 不可达」503）。 */

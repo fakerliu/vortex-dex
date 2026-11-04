@@ -23,6 +23,7 @@ import { ErrorCodes } from '../../common/constants/error-codes';
 import { DexPoolService } from '../../dex/dex-pool.service';
 import { AerodromeClassicAdapter } from '../../dex/aerodrome/aerodrome-classic.adapter';
 import { AerodromeClAdapter } from '../../dex/aerodrome/aerodrome-cl.adapter';
+import { UniswapV3Adapter } from '../../dex/uniswap-v3/uniswap-v3.adapter';
 import {
   AERODROME_CLASSIC_ROUTER,
   AERODROME_PROTOCOL_TYPE_CL,
@@ -30,14 +31,21 @@ import {
   AERODROME_SWAP_ROUTER,
   DEFAULT_SWAP_GAS_LIMIT,
 } from '../../dex/aerodrome/constants';
+import {
+  UNISWAP_V3_PROTOCOL_TYPE,
+  UNISWAP_V3_SWAP_ROUTER,
+} from '../../dex/uniswap-v3/constants';
 import { combinePriceImpacts, parseAmount } from '../../dex/math';
 import {
   buildApproveCalldata,
   buildClExactInput,
   buildClExactInputSingle,
   buildClassicSwapExactTokensForTokens,
+  buildUniswapV3ExactInput,
+  buildUniswapV3ExactInputSingle,
   classicRoute,
   encodeClPath,
+  encodeUniswapV3Path,
   type BuiltTransaction,
 } from '../../dex/calldata';
 import {
@@ -90,6 +98,7 @@ export class SwapService {
     private readonly poolService: DexPoolService,
     private readonly classic: AerodromeClassicAdapter,
     private readonly cl: AerodromeClAdapter,
+    private readonly uniswapV3: UniswapV3Adapter,
   ) {}
 
   // ---------- prepare ----------
@@ -552,7 +561,7 @@ export class SwapService {
       return this.validateRoute({ tokenPath, poolPath, protocolPath }, tokenIn, tokenOut);
     }
 
-    const best = await this.poolService.quoteBest(
+    const best = await this.poolService.quoteBestForChain(
       chainId,
       tokenIn,
       tokenOut,
@@ -604,7 +613,11 @@ export class SwapService {
     const normToken = tokenPath.map((t) => this.assertAddress(t, 'tokenPath'));
     const normProto = protocolPath.map((p) => {
       const v = String(p).toLowerCase();
-      if (v !== AERODROME_PROTOCOL_TYPE_CLASSIC && v !== AERODROME_PROTOCOL_TYPE_CL) {
+      if (
+        v !== AERODROME_PROTOCOL_TYPE_CLASSIC &&
+        v !== AERODROME_PROTOCOL_TYPE_CL &&
+        v !== UNISWAP_V3_PROTOCOL_TYPE
+      ) {
         throw new BadRequestException(`不支持的 protocolPath 项: ${p}`);
       }
       return v;
@@ -656,6 +669,27 @@ export class SwapService {
           amountOut: q.amountOut,
           fee: q.fee,
           stable,
+        });
+        impacts.push(q.priceImpact);
+        amountInStr = q.amountOut;
+      } else if (protocol === UNISWAP_V3_PROTOCOL_TYPE) {
+        const q = await this.uniswapV3.getQuote({
+          chainId,
+          poolAddress: pool,
+          tokenIn: tIn,
+          tokenOut: tOut,
+          amountIn: amountInStr,
+        });
+        gasSum += BigInt(q.gasEstimate ?? DEFAULT_SWAP_GAS_LIMIT.toString());
+        hops.push({
+          pool,
+          protocol,
+          kind: 'cl',
+          tokenIn: tIn,
+          tokenOut: tOut,
+          amountIn: amountInStr,
+          amountOut: q.amountOut,
+          fee: q.fee,
         });
         impacts.push(q.priceImpact);
         amountInStr = q.amountOut;
@@ -765,7 +799,52 @@ export class SwapService {
       };
     }
 
-    // classic + CL 混合多跳：单个原生 Router 无法承载，需 UniversalRouter 或自定义 Executor（后续 Sprint）。
+    const allUniswapV3 = hops.every(
+      (h) => h.protocol === UNISWAP_V3_PROTOCOL_TYPE,
+    );
+
+    if (allUniswapV3) {
+      if (hops.length === 1) {
+        const h = hops[0];
+        const tx = buildUniswapV3ExactInputSingle({
+          tokenIn: h.tokenIn,
+          tokenOut: h.tokenOut,
+          fee: Number(h.fee),
+          recipient,
+          deadline,
+          amountIn,
+          amountOutMinimum: amountOutMin,
+          sqrtPriceLimitX96,
+        });
+        return {
+          transaction: tx,
+          spender: UNISWAP_V3_SWAP_ROUTER.toLowerCase(),
+          protocol: UNISWAP_V3_PROTOCOL_TYPE,
+        };
+      }
+
+      const path = encodeUniswapV3Path(
+        hops.map((h) => ({
+          tokenIn: h.tokenIn,
+          tokenOut: h.tokenOut,
+          fee: Number(h.fee),
+        })),
+      );
+      const tx = buildUniswapV3ExactInput({
+        path,
+        recipient,
+        deadline,
+        amountIn,
+        amountOutMinimum: amountOutMin,
+      });
+      return {
+        transaction: tx,
+        spender: UNISWAP_V3_SWAP_ROUTER.toLowerCase(),
+        protocol: UNISWAP_V3_PROTOCOL_TYPE,
+      };
+    }
+
+    // classic + CL + Uniswap V3 混合多跳：单个原生 Router 无法承载，需 UniversalRouter 或自定义 Executor（后续 Sprint）。
     throw new HttpException(
       {
         code: ErrorCodes.UNSUPPORTED_ROUTE,
