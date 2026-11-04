@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { TokenIcon } from "@/components/token/TokenIcon";
+import { TokenSecurityCard } from "@/components/security/TokenSecurityCard";
 import { PageContainer } from "@/components/layout/PageContainer";
 
 function CopyAddressButton({ address }: { address: string }) {
@@ -196,6 +197,8 @@ export function TokenDetailView({
                 </a>
               </div>
             </Card>
+
+            <TokenSecurityCard address={address} chainId={chainId} />
 
             <Card>
               <div className="divide-y divide-gray-100">

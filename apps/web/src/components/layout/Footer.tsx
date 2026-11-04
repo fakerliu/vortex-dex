@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PageContainer } from "./PageContainer";
 
 export function Footer() {
@@ -11,18 +12,18 @@ export function Footer() {
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-500">
-          <a href="/swap" className="transition-colors hover:text-gray-800">
+          <Link href="/swap" className="transition-colors hover:text-gray-800">
             Swap
-          </a>
-          <a
+          </Link>
+          <Link
             href="/transactions"
             className="transition-colors hover:text-gray-800"
           >
             Transactions
-          </a>
-          <a href="/analytics" className="transition-colors hover:text-gray-800">
+          </Link>
+          <Link href="/analytics" className="transition-colors hover:text-gray-800">
             Analytics
-          </a>
+          </Link>
         </div>
         <p className="text-xs text-gray-500">
           © {new Date().getFullYear()} VORTEX DEX. Experimental interface.

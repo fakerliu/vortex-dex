@@ -14,6 +14,8 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { ProtocolModule } from './modules/protocol/protocol.module';
 import { PoolModule } from './modules/pool/pool.module';
 import { IndexerModule } from './indexer/indexer.module';
+import { ApprovalModule } from './modules/approval/approval.module';
+import { SecurityModule } from './modules/security/security.module';
 
 @Module({
   imports: [
@@ -32,6 +34,8 @@ import { IndexerModule } from './indexer/indexer.module';
     ProtocolModule,
     PoolModule,
     IndexerModule,
+    ApprovalModule,
+    SecurityModule,
   ],
 })
 export class AppModule {}
