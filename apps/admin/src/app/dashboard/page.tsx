@@ -101,6 +101,9 @@ export default function DashboardPage() {
             </span>
           </div>
           <div className="flex items-center gap-4">
+            <a href="/dex" className="text-sm text-gray-500 hover:text-gray-300">
+              DEX 专业分析
+            </a>
             <select
               value={chainId ?? ""}
               onChange={(e) =>
