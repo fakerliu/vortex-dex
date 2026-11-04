@@ -1,17 +1,35 @@
 # VORTEX DEX
 
-基于 **Base** 链的去中心化交易所（DEX）。本仓库为 monorepo 工程骨架（Sprint 0），
-当前只包含工程结构与占位包，**尚未包含任何业务逻辑**。
+基于 **Base** 链的非托管 DEX Aggregator（去中心化交易所聚合器）。通过统一的 DEX
+适配层接入 Aerodrome（classic + Slipstream CL）与 Uniswap V3，聚合多个流动性池的
+报价与路径，输出最优交易路径并生成可由前端钱包直接签名广播的 calldata。
+
+本仓库为 monorepo，**Sprint 0-9 已全部完成交付**：工程骨架、Token 模块、DEX 适配器、
+报价引擎、路由引擎、交易执行、链上事件索引、交易记录对账、经营分析均已实现，前后端
+已打通真实报价与交易全链路。
+
+## 核心特性
+
+- **非托管交易**：后端只产出 calldata 供前端钱包签名广播，绝不接触私钥/助记词/已签名交易，仅接收公开的 `tx_hash`。
+- **多协议适配**：统一 `DexAdapter` 接口，实现 Aerodrome Classic（Velodrome v2 fork）、Aerodrome Slipstream CL（Uniswap v3 fork）、Uniswap V3 三类适配器。
+- **报价引擎**：多池聚合选最优，区分 V2 恒定乘积 / stable 不变式 / V3 集中流动性三类定价逻辑。
+- **路由引擎**：多跳路径搜索（BFS + hub 代币集），按 `NetOutput = amountOut - gasCost` 排序。
+- **链上事件索引**：区块扫描 + 断点续传 + 重组检测 + 幂等写入，只索引 Base Mainnet 的 Aerodrome 池子。
+- **交易记录与对账**：`backfill` 从链上事件回填交易，`reconcile` 核验 PENDING 状态，用户维度聚合平台与链上两类来源。
+- **经营分析**：量（volume）与收入（revenue）严格分离，无 USD 预言机时不伪造 USD，指标带来源可追踪。
 
 ## 技术栈
 
 | 层 | 技术 | 说明 |
 | --- | --- | --- |
-| 前端 | Next.js（React） | `apps/web` |
-| 后端 | NestJS | `apps/api` |
+| 前端 | Next.js 15 + React 19 + TypeScript + Tailwind CSS v3 | `apps/web` |
+| 前端状态/钱包 | wagmi v2 + viem v2 + TanStack Query v5 | 钱包连接、链上读取、签名广播 |
+| 后端 | NestJS 10 | `apps/api` |
+| ORM/数据库 | Prisma 5.22 + PostgreSQL 16 | `apps/api/prisma` |
+| 链上交互 | viem v2 | RPC 读取、事件解析、calldata 编码 |
 | 共享包 | TypeScript | `packages/shared`、`packages/config`、`packages/sdk` |
-| 合约 | Solidity + Foundry | `contracts` |
-| 基础设施 | PostgreSQL + Redis | 根目录 `docker-compose.yml` |
+| 合约 | Solidity + Foundry（占位，尚未编写 .sol） | `contracts` |
+| 基础设施 | PostgreSQL 16 + Redis 7 | 根目录 `docker-compose.yml` |
 | 包管理 | pnpm workspace | 根目录 `pnpm-workspace.yaml` |
 
 ## 目录结构
@@ -19,27 +37,40 @@
 ```
 vortex-dex/
 ├── apps/
-│   ├── web/          # Next.js 前端（占位，frontend-engineer 负责）
-│   └── api/          # NestJS 后端（占位）
+│   ├── web/                  # Next.js 前端
+│   │   └── src/
+│   │       ├── app/          # App Router 页面（/ 重定向 /swap；/swap、/transactions、/analytics）
+│   │       ├── components/   # UI 基础组件、layout、navigation、wallet、token、swap
+│   │       ├── config/       # wagmi、chains、tokens 配置
+│   │       ├── hooks/        # useQuote、useSwapExecution、useTokenBalance
+│   │       ├── services/     # quote.ts、swap.ts（后端 API 封装）
+│   │       ├── types/        # quote、swap、token 类型契约
+│   │       └── utils/        # cn、format（BigInt 金额格式化）
+│   └── api/                  # NestJS 后端
+│       ├── prisma/           # schema.prisma、migrations/、seed.ts
+│       ├── scripts/          # smoke.ts、verify-aerodrome.ts
+│       └── src/
+│           ├── chain/        # RPC 客户端、ERC-20 读取、token 目录、地址工具
+│           ├── common/       # 全局异常过滤器、响应拦截器、错误码、单位工具
+│           ├── dex/          # DEX 适配层（aerodrome、uniswap-v3、math、calldata）
+│           ├── indexer/      # 链上事件索引器（扫描/断点续传/重组检测）
+│           ├── modules/      # health、token、quote、route、swap、user、analytics、protocol、pool
+│           └── prisma/       # PrismaService
 ├── packages/
-│   ├── shared/       # 共享类型/常量（链配置、地址工具）
-│   ├── config/       # 共享配置（环境变量读取）
-│   └── sdk/          # SDK 占位
-├── contracts/        # Foundry 合约项目占位
+│   ├── shared/               # 链常量、地址校验与规范化
+│   ├── config/               # 环境变量读取工具
+│   └── sdk/                  # SDK（占位，仅 SDK_VERSION）
+├── contracts/                # Foundry 合约项目（占位，src/script/test 仅 .gitkeep）
 ├── infrastructure/
-│   ├── docker/       # 部署向 Docker 配置
-│   └── scripts/      # 运维脚本
-├── docs/             # 项目文档
-├── tests/            # 集成 / E2E 测试
-├── docker-compose.yml
+│   ├── docker/               # 生产/预发 Docker 配置（占位）
+│   └── scripts/              # 运维脚本（占位）
+├── docs/                     # 项目文档
+├── tests/                    # 集成 / E2E 测试（占位）
+├── docker-compose.yml        # 本地基础设施（PostgreSQL + Redis）
 ├── .env.example
-├── package.json      # pnpm workspace 根
+├── package.json              # pnpm workspace 根
 ├── pnpm-workspace.yaml
-├── tsconfig.base.json
-├── .eslintrc.json
-├── .prettierrc
-├── .editorconfig
-└── .gitignore
+└── tsconfig.base.json
 ```
 
 ## 前置条件
@@ -49,10 +80,8 @@ vortex-dex/
 | Node.js | >= 20 | 已实测 v22.22.2 |
 | pnpm | >= 9 | 已实测 9.15.0 |
 | Git | 2.x | 已实测 2.55.0 |
-| Docker | 可选 | 仅本地基础设施（PostgreSQL/Redis）需要；本机暂未安装 |
-| Foundry (forge) | 可选 | 仅合约开发/部署需要；本机暂未安装 |
-
-> 本机环境实测：无 yarn、无 Docker、无 Foundry。以下命令均基于 pnpm。
+| Docker | 可选 | 本地基础设施（PostgreSQL/Redis）需要；未安装时可自建数据库 |
+| Foundry (forge) | 可选 | 仅合约开发需要；当前 contracts 尚未编写 .sol |
 
 ## 快速开始
 
@@ -71,33 +100,85 @@ cp .env.example .env
 
 ### 3. 启动本地基础设施（PostgreSQL + Redis）
 
-本机装有 Docker 时：
-
 ```bash
 docker compose up -d
 ```
 
-本机无 Docker 时：跳过本步，后端暂不强求跑起来；或自行安装 PostgreSQL/Redis 并修改
-`.env` 中的连接信息。
+无 Docker 时可自行安装 PostgreSQL 16 / Redis 7，并修改 `.env` 中的连接信息。
 
-### 4. 运行前端 / 后端
+### 4. 初始化数据库（迁移 + 种子数据）
 
 ```bash
-# 前端（依赖 frontend-engineer 完成实现后可用）
-pnpm dev:web
-
-# 后端（依赖实现后可用）
-pnpm dev:api
+pnpm --filter @vortex/api prisma:migrate   # 应用迁移
+pnpm --filter @vortex/api seed             # 写入 Base Mainnet/Sepolia 精选 Token
 ```
 
-### 5. 合约（可选）
+### 5. 启动后端 / 前端
 
-见 `contracts/README.md`。需先安装 Foundry：
+```bash
+# 后端（http://localhost:3001/api/v1）
+pnpm dev:api
+
+# 前端（http://localhost:3000，根路径重定向到 /swap）
+pnpm dev:web
+```
+
+前端需配置 `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001/api/v1` 才能接后端真实报价。
+
+### 6. 合约（可选）
+
+`contracts/` 目前为 Foundry 占位（无 .sol 源码），尚未编写合约。需先安装 Foundry：
 
 ```bash
 curl -L https://foundry.paradigm.xyz | bash
 foundryup
 ```
+
+## 已实现功能清单（按 Sprint）
+
+| Sprint | 交付内容 |
+| --- | --- |
+| Sprint 0 | monorepo 工程骨架、pnpm workspace、docker-compose、共享包（shared/config/sdk） |
+| Sprint 1 | Prisma schema（11 张表）、NestJS 骨架（/api/v1 前缀、统一响应/错误结构）、health |
+| Sprint 2 | chain 层（RPC 客户端 + ERC-20 读取）、Token 模块 5 个 API |
+| Sprint 3 | DEX Adapter 层（Aerodrome Classic + Slipstream CL，地址链上核验） |
+| Sprint 4 | 报价引擎（`POST /quote`，多池聚合选最优） |
+| Sprint 5 | 路由引擎（`POST /route`，多跳路径 + NetOutput 排序） |
+| Sprint 6 | 交易执行（`POST /swaps/prepare`、`POST /swaps/submit`，11 态状态机，非托管） |
+| Sprint 7 | Indexer（区块扫描、断点续传、重组检测、幂等写入） |
+| Sprint 8 | 交易记录（backfill / reconcile 对账）、User 模块 |
+| Sprint 9 | 经营分析（summary / daily / protocol-distribution / aggregate） |
+| 收尾 | 前后端对接真实报价、Review Swap 签名广播全链路、Uniswap V3 Sepolia 适配器（84532 测试网） |
+
+### 当前尚未实现 / 占位
+
+- `contracts/`：Foundry 项目仅骨架，尚未编写任何 `.sol` 合约。
+- `packages/sdk`：仅 `SDK_VERSION` 占位，报价/路由/交易执行能力在后端实现，未下沉到 SDK。
+- `infrastructure/docker`、`infrastructure/scripts`、`tests/`：目录占位，未实现。
+- `GET /api/v1/protocols`、`GET /api/v1/pools`：仅路由占位，返回 `{ implemented: false }`。
+- 前端 `/transactions`、`/analytics` 页面：仍为 EmptyState 占位，尚未接后端数据。
+- 经营分析暂无 USD 价格预言机：volume 只给原始 token 量 + 笔数，`revenue.available = false`，不伪造 USD。
+
+## 共享包说明
+
+- `@vortex/shared`：链常量（Base 主网 8453 / Base Sepolia 84532）、`isAddress` / `normalizeAddress` / `shortenAddress` 地址工具。
+- `@vortex/config`：`getEnv` / `getEnvNumber` / `getEnvBoolean` / `getEnvironment` 等环境变量读取工具。
+- `@vortex/sdk`：占位，仅导出 `SDK_VERSION = '0.1.0'`。
+
+## 环境变量
+
+完整清单见 `.env.example`，关键项：
+
+| 变量 | 说明 | 缺省 |
+| --- | --- | --- |
+| `APP_ENV` | 运行环境（local / testnet / mainnet） | `local` |
+| `PORT` / `API_PORT` | 前端 / 后端端口 | `3000` / `3001` |
+| `BASE_MAINNET_RPC_URL` | Base 主网 RPC | `https://mainnet.base.org` |
+| `BASE_SEPOLIA_RPC_URL` | Base Sepolia RPC | `https://sepolia.base.org` |
+| `DATABASE_URL` | PostgreSQL 连接串 | `postgresql://vortex:vortex@localhost:5432/vortex?schema=public` |
+| `REDIS_URL` | Redis 连接串 | `redis://localhost:6379` |
+| `NEXT_PUBLIC_API_BASE_URL` | 前端访问后端的基础 URL | 无（未配置时前端显示「待接入」） |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | WalletConnect 项目 ID（敏感） | 空 |
 
 ## 常用脚本
 
@@ -108,17 +189,15 @@ pnpm typecheck        # 类型检查
 pnpm lint             # ESLint
 pnpm format           # Prettier 格式化
 pnpm format:check     # Prettier 格式检查
+pnpm dev:web          # 启动前端
+pnpm dev:api          # 启动后端
 ```
 
-## 共享包说明
+## 文档
 
-- `@vortex/shared`：链常量（Base 主网 8453 / Base Sepolia 84532）、地址校验与规范化工具。
-- `@vortex/config`：`getEnv` / `getEnvNumber` / `getEnvBoolean` / `getEnvironment` 等环境变量读取工具。
-- `@vortex/sdk`：占位，后续实现报价、路由、交易执行。
-
-> 共享包以 `src/index.ts` 作为入口（源码直接引用）。前端（Next.js）需在 `next.config`
-> 中配置 `transpilePackages: ['@vortex/shared', '@vortex/config', '@vortex/sdk']`；
-> 后端（NestJS）构建时经 `tsc` 一并转译。
+- [架构设计](docs/architecture.md)
+- [API 文档](docs/api.md)
+- [部署手册](docs/deployment.md)
 
 ## 安全规范
 
@@ -126,6 +205,8 @@ pnpm format:check     # Prettier 格式检查
   **一律经环境变量 / 密钥管理注入，禁止明文提交**。
 - `.env` 已被 `.gitignore` 忽略；`.env.example` 只含占位符，不含真实值。
 - 合约地址以部署广播产物与区块浏览器为准，**不要在仓库硬编码或编造地址**。
+- 后端「非托管铁律」：绝不接收私钥/助记词/已签名交易，只接收公开 `tx_hash`。
+- 金额「精度铁律」：链上原始大整数一律字符串，比率一律十进制字符串，禁止 Float。
 
 ## 约定
 
