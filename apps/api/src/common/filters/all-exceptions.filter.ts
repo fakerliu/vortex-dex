@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   ArgumentsHost,
   Catch,
@@ -11,7 +12,8 @@ import { ErrorCodes } from '../constants/error-codes';
 
 /**
  * 全局异常过滤器：将所有异常统一转换为
- * { success: false, error: { code, message }, path, timestamp } 结构。
+ * { success: false, error: { code, message }, path, timestamp, meta } 结构。
+ * 顶层 timestamp 为历史字段保留（向后兼容），meta 为新增统一信封字段。
  */
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -53,12 +55,25 @@ export class AllExceptionsFilter implements ExceptionFilter {
       );
     }
 
+    const timestamp = new Date().toISOString();
+    const requestId = this.resolveRequestId(request);
+
     response.status(status).json({
       success: false,
       error: { code, message },
       path: request.url,
-      timestamp: new Date().toISOString(),
+      timestamp,
+      meta: { requestId, timestamp },
     });
+  }
+
+  /** 复用客户端传入的 X-Request-Id 作为追踪 id，否则生成新 UUID。 */
+  private resolveRequestId(request: Request): string {
+    const header = request?.headers?.['x-request-id'];
+    if (typeof header === 'string' && header.length > 0) {
+      return header;
+    }
+    return randomUUID();
   }
 
   private codeFromStatus(status: number): string {
