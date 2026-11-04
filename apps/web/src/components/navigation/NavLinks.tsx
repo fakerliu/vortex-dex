@@ -7,6 +7,7 @@ import { cn } from "@/utils/cn";
 const LINKS = [
   { href: "/swap", label: "Swap" },
   { href: "/explore", label: "Explore" },
+  { href: "/pools", label: "Pools" },
   { href: "/portfolio", label: "Portfolio" },
   { href: "/transactions", label: "Transactions" },
   { href: "/approvals", label: "Approvals" },

@@ -104,6 +104,17 @@ export function priceImpactToPercent(
 }
 
 /**
+ * 将后端返回的费率 ppm 字符串格式化为百分比文案（纯字符串运算，无 Float）。
+ * 1_000_000 ppm = 100%，故 ppm / 10000 = 百分比数值。
+ * 例：formatFeePpm("3000") -> "0.30%"；formatFeePpm("500") -> "0.05%"。
+ */
+export function formatFeePpm(ppm: string | null | undefined): string {
+  if (ppm === null || ppm === undefined || ppm === "") return "—";
+  const percent = shiftDecimalPoint(ppm, -4);
+  return `${formatDecimalString(percent, 4)}%`;
+}
+
+/**
  * 将后端返回的 USD 十进制字符串格式化为带 $ 的展示文案（纯字符串运算，无 Float）。
  * - 整数部分 >= 1：保留 2 位小数；
  * - < 1 的小数：保留到首个非零位后 4 位（最多 8 位小数），避免极小价格被抹平为 0；
