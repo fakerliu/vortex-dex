@@ -4,6 +4,7 @@ import type {
   SubmitSwapParams,
   SwapRecord,
 } from "@/types/swap";
+import type { SwapHistoryParams, SwapHistoryResult } from "@/types/history";
 
 /** 执行引擎是否已配置（未配置时 UI 显示「待接入」，不发请求）。 */
 export function isSwapApiConfigured(): boolean {
@@ -43,8 +44,21 @@ const SWAP_ERROR_MESSAGES: Record<string, string> = {
   CONFLICT: "This transaction was already submitted.",
 };
 
-function userMessage(code: string, fallback: string): string {
-  return SWAP_ERROR_MESSAGES[code] ?? fallback;
+/** 用户交易历史接口错误码 -> 用户可读文案。 */
+const HISTORY_ERROR_MESSAGES: Record<string, string> = {
+  BAD_REQUEST: "Invalid wallet address or request parameters.",
+  VALIDATION_ERROR: "Invalid wallet address or request parameters.",
+  NOT_FOUND: "No transaction history is available for this wallet.",
+  SERVICE_UNAVAILABLE: "History service is temporarily unavailable.",
+  INTERNAL_ERROR: "History service error. Please try again.",
+};
+
+function userMessage(
+  code: string,
+  fallback: string,
+  messages: Record<string, string>,
+): string {
+  return messages[code] ?? fallback;
 }
 
 interface ApiEnvelope<T> {
@@ -63,20 +77,16 @@ function apiBaseOrThrow(): string {
   return apiBase.replace(/\/+$/, "");
 }
 
-/** 统一请求封装：POST JSON，解析统一信封，失败抛 SwapApiError。 */
-async function post<T>(
-  path: string,
-  body: Record<string, unknown>,
+/** 统一请求封装：发起 fetch，解析统一信封，失败抛 SwapApiError。 */
+async function request<T>(
+  url: string,
+  init: RequestInit,
+  messages: Record<string, string>,
+  fallback: string,
 ): Promise<T> {
-  const url = `${apiBaseOrThrow()}${path}`;
-
   let res: Response;
   try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    res = await fetch(url, init);
   } catch (err) {
     throw new SwapApiError(
       "NETWORK_ERROR",
@@ -100,12 +110,52 @@ async function post<T>(
     const code = envelope.error?.code ?? "UNKNOWN_ERROR";
     const message = userMessage(
       code,
-      envelope.error?.message ?? `Swap request failed: ${res.status}`,
+      envelope.error?.message ?? `${fallback} (HTTP ${res.status})`,
+      messages,
     );
     throw new SwapApiError(code, message, res.status);
   }
 
   return envelope.data;
+}
+
+/** POST JSON 请求封装。 */
+async function post<T>(
+  path: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  return request<T>(
+    `${apiBaseOrThrow()}${path}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    SWAP_ERROR_MESSAGES,
+    "Swap request failed",
+  );
+}
+
+/** GET 请求封装：拼 query 参数，解析统一信封。 */
+async function get<T>(
+  path: string,
+  params?: Record<string, string | number | undefined>,
+): Promise<T> {
+  const search = new URLSearchParams();
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined) {
+        search.set(key, String(value));
+      }
+    }
+  }
+  const qs = search.toString();
+  return request<T>(
+    `${apiBaseOrThrow()}${path}${qs ? `?${qs}` : ""}`,
+    { method: "GET" },
+    HISTORY_ERROR_MESSAGES,
+    "History request failed",
+  );
 }
 
 /**
@@ -143,5 +193,20 @@ export async function submitSwap(
     amountOut: params.amountOut,
     ...(params.chainId !== undefined ? { chainId: params.chainId } : {}),
     ...(params.status !== undefined ? { status: params.status } : {}),
+  });
+}
+
+/**
+ * 用户交易历史：GET ${NEXT_PUBLIC_API_BASE_URL}/users/:address/swaps。
+ * 分页参数 page / limit / chainId 可选；金额为最小单位字符串，禁 Float。
+ */
+export async function getSwapHistory(
+  address: string,
+  params: SwapHistoryParams = {},
+): Promise<SwapHistoryResult> {
+  return get<SwapHistoryResult>(`/users/${address}/swaps`, {
+    ...(params.page !== undefined ? { page: params.page } : {}),
+    ...(params.limit !== undefined ? { limit: params.limit } : {}),
+    ...(params.chainId !== undefined ? { chainId: params.chainId } : {}),
   });
 }
