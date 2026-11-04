@@ -2,6 +2,13 @@
 
 import { Skeleton } from "@/components/ui/Skeleton";
 import type { Quote } from "@/types/quote";
+import type { Token } from "@/types/token";
+import {
+  formatAmount,
+  formatDecimalString,
+  formatTokenAmount,
+  priceImpactToPercent,
+} from "@/utils/format";
 
 function DetailRow({
   label,
@@ -31,44 +38,72 @@ export function QuoteDetails({
   loading,
   hasAmount,
   notAvailable,
+  errorMessage,
+  tokenInSymbol,
+  tokenOut,
 }: {
   quote?: Quote;
   loading: boolean;
   hasAmount: boolean;
   notAvailable: boolean;
+  errorMessage?: string;
+  tokenInSymbol: string;
+  tokenOut: Token;
 }) {
+  const showSkeleton = loading && hasAmount;
+
+  // 后端返回人读价格 price（tokenOut 兑 tokenIn），限制小数位展示。
+  const exchangeRate = quote
+    ? `1 ${tokenInSymbol} = ${formatDecimalString(quote.price)} ${tokenOut.symbol}`
+    : undefined;
+
+  const minimumReceived = quote
+    ? `${formatTokenAmount(quote.minimumReceived, tokenOut.decimals)} ${tokenOut.symbol}`
+    : undefined;
+
+  const bestRoute = quote
+    ? `${quote.protocolName || quote.protocol || "Unknown"}${
+        quote.route.length > 1 ? ` · ${quote.route.length} hops` : ""
+      }`
+    : undefined;
+
   return (
     <div className="mt-4 border-t border-gray-200 pt-3">
-      <DetailRow
-        label="Exchange Rate"
-        value={quote?.exchangeRate}
-        loading={loading && hasAmount}
-      />
+      <DetailRow label="Exchange Rate" value={exchangeRate} loading={showSkeleton} />
       <DetailRow
         label="Price Impact"
-        value={quote ? `${quote.priceImpact}%` : undefined}
-        loading={loading && hasAmount}
-      />
-      <DetailRow
-        label="Network Fee"
-        value={quote?.networkFee}
-        loading={loading && hasAmount}
-      />
-      <DetailRow
-        label="Protocol Fee"
-        value={quote?.protocolFee}
-        loading={loading && hasAmount}
+        value={quote ? `${priceImpactToPercent(quote.priceImpact)}%` : undefined}
+        loading={showSkeleton}
       />
       <DetailRow
         label="Minimum Received"
-        value={quote?.minimumReceived}
-        loading={loading && hasAmount}
+        value={minimumReceived}
+        loading={showSkeleton}
       />
+      <DetailRow
+        label="Network Fee"
+        value={quote ? `~${formatAmount(quote.gasEstimate)} gas` : undefined}
+        loading={showSkeleton}
+      />
+      <DetailRow
+        label="Protocol Fee"
+        value={
+          quote ? `${priceImpactToPercent(quote.swapFeeFraction, 6)}%` : undefined
+        }
+        loading={showSkeleton}
+      />
+      <DetailRow label="Best Route" value={bestRoute} loading={showSkeleton} />
 
       {notAvailable && (
         <p className="mt-2 rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
           Quote engine not connected yet — these details will populate once the
           backend is available.
+        </p>
+      )}
+
+      {!notAvailable && errorMessage && (
+        <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+          {errorMessage}
         </p>
       )}
     </div>

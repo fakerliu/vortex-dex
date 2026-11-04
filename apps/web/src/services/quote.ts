@@ -1,10 +1,11 @@
 import type { Quote, QuoteParams } from "@/types/quote";
 
-/** 后端报价引擎是否已配置（默认未配置，UI 显示「待接入」） */
+/** 后端报价引擎是否已配置（未配置时 UI 显示「待接入」，不发请求）。 */
 export function isQuoteApiConfigured(): boolean {
   return Boolean(process.env.NEXT_PUBLIC_API_BASE_URL);
 }
 
+/** 报价引擎未接入（区别于普通网络/业务错误）。 */
 export class QuoteNotAvailableError extends Error {
   constructor(message = "Quote engine is not connected yet.") {
     super(message);
@@ -12,19 +13,49 @@ export class QuoteNotAvailableError extends Error {
   }
 }
 
+/** 后端返回的业务错误（统一信封 { success:false, error:{code,message} }）。 */
+export class QuoteApiError extends Error {
+  readonly code: string;
+  readonly status: number;
+
+  constructor(code: string, message: string, status: number) {
+    super(message);
+    this.name = "QuoteApiError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+/** 后端错误码 -> 用户可读文案。 */
+const QUOTE_ERROR_MESSAGES: Record<string, string> = {
+  NO_ROUTE: "No available route for this pair.",
+  QUOTE_EXPIRED: "This quote has expired. Please refresh.",
+  RPC_UNAVAILABLE: "Chain RPC is unreachable. Please try again.",
+  UNSUPPORTED_ROUTE: "Route is not supported yet.",
+  BAD_REQUEST: "Invalid quote request.",
+  VALIDATION_ERROR: "Invalid quote request.",
+  SERVICE_UNAVAILABLE: "Quote engine is temporarily unavailable.",
+  INTERNAL_ERROR: "Quote engine error. Please try again.",
+};
+
+function userMessage(code: string, fallback: string): string {
+  return QUOTE_ERROR_MESSAGES[code] ?? fallback;
+}
+
+interface ApiEnvelope<T> {
+  success: boolean;
+  data?: T;
+  error?: { code?: string; message?: string };
+}
+
 /**
- * 报价服务接口占位。
+ * 真正的报价请求：POST ${NEXT_PUBLIC_API_BASE_URL}/quote。
  *
- * 后端契约（backend-engineer，Sprint 1 骨架）：
- * - 统一前缀 /api/v1，端口 3001（env API_PORT）
- * - 成功响应：{ success: true, data: <Quote> }
- * - 错误响应：{ success: false, error: { code, message }, path, timestamp }
- * - 金额字段一律为字符串（链上精度），前端禁止 Number() 化
- *
- * 本函数不会返回假数字。当 NEXT_PUBLIC_API_BASE_URL 未配置时，
- * 直接抛出 QuoteNotAvailableError，由 UI 展示「报价引擎待接入」。
+ * - 请求体与后端 QuoteRequestDto 对齐：tokenIn / tokenOut / amountIn / chainId (+slippageBps)
+ * - 解析统一信封 { success, data }，失败透传错误码并映射为可读文案
+ * - 金额一律字符串，前端不做任何 Number() 化
  */
-export async function fetchQuote(_params: QuoteParams): Promise<Quote> {
+export async function fetchQuote(params: QuoteParams): Promise<Quote> {
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL;
   if (!apiBase) {
     throw new QuoteNotAvailableError(
@@ -32,21 +63,50 @@ export async function fetchQuote(_params: QuoteParams): Promise<Quote> {
     );
   }
 
-  // TODO(phase-2): 接入后端 POST /api/v1/quote，并按统一信封解析
-  // const res = await fetch(`${apiBase}/quote`, {
-  //   method: "POST",
-  //   headers: { "Content-Type": "application/json" },
-  //   body: JSON.stringify(_params),
-  // });
-  // const body = await res.json();
-  // if (!res.ok || !body?.success) {
-  //   throw new QuoteNotAvailableError(
-  //     body?.error?.message ?? `Quote request failed: ${res.status}`,
-  //   );
-  // }
-  // return body.data as Quote;
+  const url = `${apiBase.replace(/\/+$/, "")}/quote`;
 
-  throw new QuoteNotAvailableError(
-    "Quote engine endpoint configured but not yet implemented.",
-  );
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tokenIn: params.tokenIn,
+        tokenOut: params.tokenOut,
+        amountIn: params.amountIn,
+        chainId: params.chainId,
+        ...(params.slippageBps !== undefined
+          ? { slippageBps: params.slippageBps }
+          : {}),
+      }),
+    });
+  } catch (err) {
+    throw new QuoteApiError(
+      "NETWORK_ERROR",
+      err instanceof Error ? err.message : String(err),
+      0,
+    );
+  }
+
+  let body: ApiEnvelope<Quote>;
+  try {
+    body = (await res.json()) as ApiEnvelope<Quote>;
+  } catch {
+    throw new QuoteApiError(
+      "BAD_RESPONSE",
+      `Quote endpoint returned non-JSON response (HTTP ${res.status}).`,
+      res.status,
+    );
+  }
+
+  if (!res.ok || !body.success || !body.data) {
+    const code = body.error?.code ?? "UNKNOWN_ERROR";
+    const message = userMessage(
+      code,
+      body.error?.message ?? `Quote request failed: ${res.status}`,
+    );
+    throw new QuoteApiError(code, message, res.status);
+  }
+
+  return body.data;
 }

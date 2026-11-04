@@ -1,51 +1,67 @@
 /**
- * 报价相关类型与接口占位。
- * Phase 1 不接后端报价引擎，这里只定义清晰契约，不使用假数字。
+ * 报价相关类型（与后端真实契约对齐，Sprint 4 报价引擎）。
+ *
+ * 后端统一信封：
+ * - 成功：{ success: true, data: <Quote> }
+ * - 失败：{ success: false, error: { code, message }, path, timestamp }
+ *
+ * 金额一律为「链上原始大整数」字符串（最小单位）；
+ * 比率一律为「十进制字符串」（禁 Float）。
+ * 前端展示需要的派生字段（汇率文案、百分比、人类可读金额）一律在组件内计算，
+ * 不在类型里硬塞。
  */
 
-export interface RouteStep {
+/** 报价结果中的单跳路径条目（后端字段名 kind，如 "cl" / "classic"）。 */
+export interface QuoteRouteStep {
   pool: string;
-  poolType: "V2" | "V3" | "CL" | "STABLE";
-  feeBps: number;
+  kind: string;
+}
+
+/** POST /api/v1/quote 返回的报价数据（data 部分）。 */
+export interface Quote {
+  id: string;
+  chainId: number;
   tokenIn: string;
   tokenOut: string;
-  /** 该段在整条路由中的占比 0-100 */
-  portion: number;
-}
-
-export interface Quote {
-  chainId: number;
-  inputToken: string;
-  outputToken: string;
-  /** 输入/输出均以最小单位（wei）字符串表示，前端用大数库格式化 */
-  inputAmount: string;
-  outputAmount: string;
-  /** 人类可读汇率，如 "1 WETH = 3,412.50 USDC" */
-  exchangeRate: string;
-  /** 价格影响，百分比数值，如 0.12 表示 0.12% */
-  priceImpact: number;
-  /** 网络费（gas）估算，人类可读，如 "~$0.32" */
-  networkFee: string;
-  /** 协议费，人类可读 */
-  protocolFee: string;
-  /** 按滑点计算的最小获得数量（人类可读字符串） */
+  /** 输入金额（最小单位字符串）。 */
+  amountIn: string;
+  /** 输出金额（最小单位字符串）。 */
+  amountOut: string;
+  /** 人读价格（tokenOut 兑 tokenIn，十进制字符串，如 "2276.55541"）。 */
+  price: string;
+  /** 考虑滑点后的最小可接受输出（最小单位字符串）。 */
   minimumReceived: string;
-  /** 输出代币的美元估值（人类可读，如 "$1,234.56"），Phase 2 由后端提供 */
-  usdValue?: string;
-  route: RouteStep[];
-  /** 报价来源标识 */
-  provider: string;
-  /** 报价过期时间戳（ms） */
-  expiresAt: number;
+  /** 价格影响（十进制字符串，如 "0.000253390435906198" = 0.0253%）。 */
+  priceImpact: string;
+  /** 手续费（ppm 字符串，1e6 = 100%，如 "150" = 0.015%）。 */
+  swapFee: string;
+  /** 手续费（十进制小数，如 "0.00015" = 0.015%）。 */
+  swapFeeFraction: string;
+  /** gas 估算（原始 gas 单位字符串）。 */
+  gasEstimate: string;
+  /** 来源协议 protocol_type（如 "aerodrome_cl"）。 */
+  protocol: string;
+  /** 来源协议名称（如 "Aerodrome"）。 */
+  protocolName: string;
+  /** 最优单跳路径。 */
+  route: QuoteRouteStep[];
+  /** 报价来源（constant-product / quoter / onchain-getAmountOut）。 */
+  source: string;
+  /** 报价时区块高度。 */
+  blockNumber: number | null;
+  /** 报价时间（ISO 8601）。 */
+  quoteTimestamp: string;
+  /** 报价过期时间（ISO 8601）。 */
+  quoteExpiration: string;
 }
 
+/** POST /api/v1/quote 请求体（前端请求参数）。 */
 export interface QuoteParams {
+  tokenIn: string;
+  tokenOut: string;
+  /** 输入金额，最小单位字符串。 */
+  amountIn: string;
   chainId: number;
-  inputToken: string;
-  outputToken: string;
-  /** 输入金额，最小单位字符串 */
-  inputAmount: string;
-  /** 滑点，bps（如 50 表示 0.5%） */
-  slippageBps: number;
-  recipient?: string;
+  /** 滑点，bps（如 50 = 0.5%）。 */
+  slippageBps?: number;
 }

@@ -2,7 +2,26 @@
 
 import { ChevronDown } from "lucide-react";
 import type { Quote } from "@/types/quote";
+import { truncateAddress } from "@/utils/format";
 import { cn } from "@/utils/cn";
+
+/** 协议类型标识的展示文案。 */
+function kindLabel(kind: string): string {
+  switch (kind.toLowerCase()) {
+    case "cl":
+      return "CL";
+    case "classic":
+      return "Classic";
+    case "stable":
+      return "Stable";
+    case "v2":
+      return "V2";
+    case "v3":
+      return "V3";
+    default:
+      return kind.toUpperCase();
+  }
+}
 
 export function RouteDetails({
   quote,
@@ -34,21 +53,26 @@ export function RouteDetails({
         <div className="pb-3">
           {quote && quote.route.length > 0 ? (
             <div className="flex flex-col gap-2">
+              <p className="text-xs text-gray-500">
+                Best route via{" "}
+                <span className="font-semibold text-gray-700">
+                  {quote.protocolName || quote.protocol || "Unknown"}
+                </span>
+              </p>
               {quote.route.map((step, i) => (
                 <div
-                  key={i}
+                  key={`${step.pool}-${i}`}
                   className="flex items-center justify-between rounded-lg bg-gray-100 px-3 py-2 text-xs"
                 >
                   <div className="flex items-center gap-2">
                     <span className="rounded bg-gray-300 px-1.5 py-0.5 text-[10px] font-semibold text-gray-700">
-                      {step.poolType}
+                      {kindLabel(step.kind)}
                     </span>
-                    <span className="text-gray-700">{step.pool}</span>
+                    <span className="font-mono text-gray-700">
+                      {truncateAddress(step.pool)}
+                    </span>
                   </div>
-                  <div className="flex items-center gap-2 text-gray-500">
-                    <span>{(step.feeBps / 100).toFixed(2)}%</span>
-                    <span>{step.portion}%</span>
-                  </div>
+                  <span className="text-gray-500">hop {i + 1}</span>
                 </div>
               ))}
             </div>

@@ -60,10 +60,10 @@ export function SwapCard() {
   const quoteParams = useMemo(() => {
     if (!hasAmount || sameToken) return null;
     return {
+      tokenIn: payToken.address,
+      tokenOut: receiveToken.address,
+      amountIn: parsedAmount.toString(),
       chainId: payToken.chainId,
-      inputToken: payToken.address,
-      outputToken: receiveToken.address,
-      inputAmount: parsedAmount.toString(),
       slippageBps,
     };
   }, [hasAmount, sameToken, payToken, receiveToken, parsedAmount, slippageBps]);
@@ -125,7 +125,7 @@ export function SwapCard() {
   };
 
   const receiveValue = quote.quote
-    ? formatTokenAmount(quote.quote.outputAmount, receiveToken.decimals)
+    ? formatTokenAmount(quote.quote.amountOut, receiveToken.decimals)
     : "";
 
   const receiveHint = !hasAmount
@@ -222,11 +222,7 @@ export function SwapCard() {
             loading={quote.isLoading}
             onSelectToken={() => setSelector("receive")}
             bottomLeft={receiveHint}
-            bottomRight={
-              quote.quote?.usdValue ? (
-                <span className="tabular-nums">{quote.quote.usdValue}</span>
-              ) : null
-            }
+            bottomRight={null}
           />
 
           <button
@@ -250,6 +246,9 @@ export function SwapCard() {
           loading={quote.isLoading}
           hasAmount={hasAmount}
           notAvailable={quote.notAvailable}
+          errorMessage={quote.errorMessage}
+          tokenInSymbol={payToken.symbol}
+          tokenOut={receiveToken}
         />
 
         <RouteDetails
