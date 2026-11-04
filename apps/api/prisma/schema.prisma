@@ -371,3 +371,60 @@ model AnalyticsHourly {
   @@index([hour])
   @@map("analytics_hourly")
 }
+
+// ---------- G. 告警规则（第八步异常中心） ----------
+model AlertRule {
+  id              String   @id @default(cuid())
+  name            String // 规则名（人读）
+  metric_name     String // 监控的指标名（error_rate / block_lag / request_count 等）
+  operator        String // 比较符：gt / gte / lt / lte
+  threshold       String // 阈值（字符串，保留精度）
+  window_minutes  Int      @default(60) // 统计窗口（分钟）
+  severity        String   @default("warning") // info / warning / critical
+  is_enabled      Boolean  @default(true)
+  description     String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  @@index([metric_name])
+  @@index([is_enabled])
+  @@map("alert_rules")
+}
+
+// ---------- H. 异常事件（第八步异常中心） ----------
+model AnomalyEvent {
+  id           String   @id @default(cuid())
+  rule_id      String? // FK -> alert_rules.id（可空：手动上报的异常无规则）
+  rule_name    String // 触发的规则名（冗余，方便展示）
+  metric_name  String // 触发异常的指标名
+  metric_value String // 触发时的指标值
+  threshold    String // 阈值
+  severity     String // info / warning / critical
+  status       String   @default("open") // open / acknowledged / resolved
+  message      String? // 异常描述
+  context      String? // JSON 序列化上下文
+  created_at   DateTime @default(now())
+  resolved_at  DateTime?
+
+  @@index([rule_id])
+  @@index([status])
+  @@index([severity])
+  @@index([created_at])
+  @@map("anomaly_events")
+}
+
+// ---------- I. 告警通知（第八步异常中心） ----------
+model AlertNotification {
+  id              String   @id @default(cuid())
+  anomaly_id      String // FK -> anomaly_events.id
+  channel         String // 通知渠道：internal / email / webhook
+  status          String   @default("pending") // pending / sent / failed
+  payload         String? // JSON 序列化的通知内容
+  sent_at         DateTime?
+  error           String?
+  created_at      DateTime @default(now())
+
+  @@index([anomaly_id])
+  @@index([status])
+  @@map("alert_notifications")
+}
