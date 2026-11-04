@@ -13,6 +13,10 @@ const nextConfig = {
       "@x402": false,
       "@solana": false,
       "@solana-program": false,
+      // @metamask/sdk 的可选 RN 依赖（本项目只走 injected/浏览器路径，不触发）
+      "@react-native-async-storage/async-storage": false,
+      // @walletconnect/logger -> pino 的可选美化器（未安装，编译期 require 会告警）
+      "pino-pretty": false,
     };
     return config;
   },
