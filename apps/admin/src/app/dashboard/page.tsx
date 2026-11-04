@@ -110,6 +110,9 @@ export default function DashboardPage() {
             <a href="/anomaly" className="text-sm text-gray-500 hover:text-gray-300">
               异常中心
             </a>
+            <a href="/diagnosis" className="text-sm text-gray-500 hover:text-gray-300">
+              问题诊断
+            </a>
             <select
               value={chainId ?? ""}
               onChange={(e) =>
