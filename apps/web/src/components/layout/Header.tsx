@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { NavLinks } from "@/components/navigation/NavLinks";
+import { NotificationBell } from "@/components/layout/NotificationBell";
 import { NetworkSelector } from "@/components/wallet/NetworkSelector";
 import { WalletConnectButton } from "@/components/wallet/WalletConnectButton";
 import { PageContainer } from "./PageContainer";
@@ -52,6 +53,7 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-2">
+          <NotificationBell />
           <NetworkSelector />
           <WalletConnectButton />
         </div>
