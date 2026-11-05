@@ -83,9 +83,9 @@ describe('AlertsService', () => {
     create.mockResolvedValue(makeAlert());
 
     const result = await service.createAlert({
-      userAddress: '0x00000000000000000000000000000000000000AA', // 应被规范化为小写
+      userAddress: '0X00000000000000000000000000000000000000AA', // 大写 0X 前缀 + 大写十六进制，应被规范化为小写
       chainId: 8453,
-      tokenAddress: '0x4200000000000000000000000000000000000006',
+      tokenAddress: '0X4200000000000000000000000000000000000006',
       symbol: 'WETH',
       condition: 'gte',
       targetPrice: '2500',
@@ -93,8 +93,8 @@ describe('AlertsService', () => {
 
     expect(create).toHaveBeenCalledTimes(1);
     const data = create.mock.calls[0][0].data;
-    expect(data.user_address).toBe(USER);
-    expect(data.token_address).toBe(WETH);
+    expect(data.user_address).toBe(USER); // USER 为小写 0x...aa
+    expect(data.token_address).toBe(WETH); // WETH 为小写 0x4200...06
     expect(data.condition).toBe('gte');
     expect(data.notify_method).toBe('in_app');
     expect(result.targetPrice).toBe('2500');

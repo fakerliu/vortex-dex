@@ -202,19 +202,23 @@ export class AlertsService {
   // ---------- 校验 ----------
 
   private assertUserAddress(address: string): string {
-    if (!isValidAddress(address)) {
+    // 先规范化（小写）再校验：共享的 isValidAddress 区分大小写，
+    // 规范化前先小写，使 0X 前缀 / 大写十六进制也能正确通过并归一为 0x。
+    const normalized = normalizeAddress(address);
+    if (!isValidAddress(normalized)) {
       throw new BadRequestException(`userAddress 不是合法的 EVM 地址: ${address}`);
     }
-    return normalizeAddress(address);
+    return normalized;
   }
 
   private assertTokenAddress(address: string): string {
-    if (!isValidAddress(address)) {
+    const normalized = normalizeAddress(address);
+    if (!isValidAddress(normalized)) {
       throw new BadRequestException(
         `tokenAddress 不是合法的 EVM 地址: ${address}`,
       );
     }
-    return normalizeAddress(address);
+    return normalized;
   }
 
   private assertCondition(condition: string): AlertCondition {
