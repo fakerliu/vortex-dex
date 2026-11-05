@@ -18,6 +18,7 @@ import { ApprovalModule } from './modules/approval/approval.module';
 import { SecurityModule } from './modules/security/security.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
 import { PreferencesModule } from './modules/preferences/preferences.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { PreferencesModule } from './modules/preferences/preferences.module';
     SecurityModule,
     AlertsModule,
     PreferencesModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

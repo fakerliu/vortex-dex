@@ -534,3 +534,22 @@ model UserPreference {
 
   @@map("user_preferences")
 }
+
+// ---------- M. 站内通知（V1.3 通知中心，面向用户） ----------
+// 价格提醒触发时落一条站内通知；区别于系统异常告警（alert_notifications，面向运维）。
+// type 预留扩展（当前仅 price_alert_triggered）；read 表示是否已读。
+model Notification {
+  id            String   @id @default(cuid())
+  user_address  String // 小写规范化
+  type          String // price_alert_triggered（预留其他类型）
+  title         String
+  body          String
+  alert_id      String? // 关联价格提醒（可空）
+  token_address String? // 关联 token（可空）
+  read          Boolean  @default(false)
+  created_at    DateTime @default(now())
+
+  @@index([user_address, read])
+  @@index([user_address, created_at])
+  @@map("notifications")
+}
