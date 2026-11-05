@@ -69,8 +69,9 @@ export class PreferencesService {
   }
 
   /**
-   * 加收藏：读现有 favorite_tokens（JSON 字符串）→ 解析 → 按 address 去重 → 追加 → 写回。
+   * 加收藏：读现有 favorite_tokens（JSON 字符串）→ 解析 → 按 chainId+address 去重 → 追加 → 写回。
    * 记录不存在时先建默认记录（favorite_tokens 仅含新增项）。
+   * 去重键为 chainId+address，保证不同链的同地址代币（如 WETH 在 Base/Sepolia）互不覆盖。
    */
   async addFavorite(
     userAddress: string,
@@ -87,7 +88,9 @@ export class PreferencesService {
       address: normalizeAddress(fav.address),
       symbol: fav.symbol,
     };
-    const next = tokens.filter((t) => t.address !== item.address);
+    const next = tokens.filter(
+      (t) => !(t.chainId === item.chainId && t.address === item.address),
+    );
     next.push(item);
 
     const serialized = JSON.stringify(next);
@@ -100,12 +103,15 @@ export class PreferencesService {
   }
 
   /**
-   * 移除收藏：解析数组 → 按 address 过滤掉 → 写回。
+   * 移除收藏：解析数组 → 按 chainId+address 过滤掉 → 写回。
+   * chainId 必填，精确指定要移除的链，避免跨链同地址代币被一并移除。
    */
   async removeFavorite(
     userAddress: string,
     tokenAddress: string,
+    chainId: number,
   ): Promise<UserPreferenceDto> {
+    this.assertChainId(chainId);
     const addr = normalizeAddress(userAddress);
     const target = normalizeAddress(tokenAddress);
     const existing = await this.prisma.userPreference.findUnique({
@@ -113,7 +119,9 @@ export class PreferencesService {
     });
     const tokens = this.parseFavoriteTokens(existing?.favorite_tokens);
 
-    const next = tokens.filter((t) => t.address !== target);
+    const next = tokens.filter(
+      (t) => !(t.chainId === chainId && t.address === target),
+    );
     const serialized = JSON.stringify(next);
     const row = await this.prisma.userPreference.upsert({
       where: { user_address: addr },
@@ -146,6 +154,12 @@ export class PreferencesService {
       if (!Number.isInteger(req.defaultDeadlineSec) || req.defaultDeadlineSec <= 0) {
         throw new BadRequestException('defaultDeadlineSec 必须是大于 0 的整数');
       }
+    }
+  }
+
+  private assertChainId(chainId: number): void {
+    if (!Number.isInteger(chainId) || !ALLOWED_CHAIN_IDS.has(chainId)) {
+      throw new BadRequestException('chainId 仅支持 8453 / 84532');
     }
   }
 

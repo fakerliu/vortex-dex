@@ -128,7 +128,7 @@ describe('PreferencesService', () => {
     expect(res.favoriteTokens).toHaveLength(1);
   });
 
-  it('removeFavorite 按 address 正确移除', async () => {
+  it('removeFavorite 按 chainId+address 正确移除', async () => {
     const existing = JSON.stringify([
       { chainId: 8453, address: ADDR, symbol: 'WETH' },
       { chainId: 8453, address: OTHER, symbol: 'USDC' },
@@ -142,12 +142,60 @@ describe('PreferencesService', () => {
       }),
     );
 
-    const res = await service.removeFavorite(ADDR, ADDR_UPPER);
+    const res = await service.removeFavorite(ADDR, ADDR_UPPER, 8453);
 
     const written = JSON.parse(upsert.mock.calls[0][0].update.favorite_tokens);
     expect(written).toEqual([{ chainId: 8453, address: OTHER, symbol: 'USDC' }]);
     expect(res.favoriteTokens).toEqual([
       { chainId: 8453, address: OTHER, symbol: 'USDC' },
+    ]);
+  });
+
+  it('addFavorite 跨链同地址代币互不覆盖', async () => {
+    const existing = JSON.stringify([
+      { chainId: 8453, address: ADDR, symbol: 'WETH' },
+    ]);
+    findUnique.mockResolvedValue(makeRow({ favorite_tokens: existing }));
+    upsert.mockResolvedValue(
+      makeRow({
+        favorite_tokens: JSON.stringify([
+          { chainId: 8453, address: ADDR, symbol: 'WETH' },
+          { chainId: 84532, address: ADDR, symbol: 'WETH' },
+        ]),
+      }),
+    );
+
+    const res = await service.addFavorite(ADDR, {
+      chainId: 84532,
+      address: ADDR,
+      symbol: 'WETH',
+    });
+
+    const written = JSON.parse(upsert.mock.calls[0][0].update.favorite_tokens);
+    expect(written).toHaveLength(2);
+    expect(res.favoriteTokens).toHaveLength(2);
+  });
+
+  it('removeFavorite 跨链只移除指定链，不误删同地址其他链', async () => {
+    const existing = JSON.stringify([
+      { chainId: 8453, address: ADDR, symbol: 'WETH' },
+      { chainId: 84532, address: ADDR, symbol: 'WETH' },
+    ]);
+    findUnique.mockResolvedValue(makeRow({ favorite_tokens: existing }));
+    upsert.mockResolvedValue(
+      makeRow({
+        favorite_tokens: JSON.stringify([
+          { chainId: 84532, address: ADDR, symbol: 'WETH' },
+        ]),
+      }),
+    );
+
+    const res = await service.removeFavorite(ADDR, ADDR, 8453);
+
+    const written = JSON.parse(upsert.mock.calls[0][0].update.favorite_tokens);
+    expect(written).toEqual([{ chainId: 84532, address: ADDR, symbol: 'WETH' }]);
+    expect(res.favoriteTokens).toEqual([
+      { chainId: 84532, address: ADDR, symbol: 'WETH' },
     ]);
   });
 });
