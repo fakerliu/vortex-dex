@@ -9,6 +9,7 @@ import type { PriceAlert } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { isValidAddress, normalizeAddress } from '../../chain/address';
 import { parseDecimal } from '../../dex/math';
+import { NotificationDispatcher } from '../notifications/notification-dispatcher';
 import type {
   AlertCondition,
   AlertStatus,
@@ -52,7 +53,10 @@ function decimalToString(d: Prisma.Decimal | null | undefined): string | null {
 export class AlertsService {
   private readonly logger = new Logger(AlertsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationDispatcher: NotificationDispatcher,
+  ) {}
 
   /** 创建提醒。 */
   async createAlert(req: CreateAlertRequestDto): Promise<PriceAlertDto> {
@@ -183,6 +187,20 @@ export class AlertsService {
           data: { status: 'triggered', triggered_at: new Date() },
         });
         triggered.push(this.toAlertDto(updated));
+
+        // V1.3：命中提醒后落一条站内通知。通知落库失败不拖垮 check（warn 静默）。
+        try {
+          await this.notificationDispatcher.dispatch(alert.notify_method, {
+            userAddress: alert.user_address,
+            type: 'price_alert_triggered',
+            title: `${alert.symbol} 价格提醒已触发`,
+            body: this.buildAlertBody(alert),
+            alertId: alert.id,
+            tokenAddress: alert.token_address,
+          });
+        } catch (err) {
+          this.logger.warn(`落通知失败: ${this.errMsg(err)}`);
+        }
       }
 
       return { checked: active.length, triggered };
@@ -209,6 +227,13 @@ export class AlertsService {
       triggeredAt: row.triggered_at ? row.triggered_at.toISOString() : null,
       createdAt: row.created_at.toISOString(),
     };
+  }
+
+  /** 构造提醒触发通知文案（契约 §4：`WETH 现价已 ≥ 2500，触发你的价格提醒`）。 */
+  private buildAlertBody(alert: PriceAlert): string {
+    const target = decimalToString(alert.target_price) ?? '0';
+    const op = alert.condition === 'gte' ? '≥' : '≤';
+    return `${alert.symbol} 现价已 ${op} ${target}，触发你的价格提醒`;
   }
 
   // ---------- 校验 ----------

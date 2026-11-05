@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import type { PriceAlert } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationDispatcher } from '../notifications/notification-dispatcher';
 import { AlertsService } from './alerts.service';
 
 const WETH = '0x4200000000000000000000000000000000000006';
@@ -50,6 +51,7 @@ describe('AlertsService', () => {
   let update: jest.Mock;
   let remove: jest.Mock;
   let snapshotFindFirst: jest.Mock;
+  let dispatch: jest.Mock;
 
   beforeEach(async () => {
     create = jest.fn();
@@ -58,6 +60,7 @@ describe('AlertsService', () => {
     update = jest.fn();
     remove = jest.fn();
     snapshotFindFirst = jest.fn();
+    dispatch = jest.fn().mockResolvedValue(null);
 
     const prisma = {
       priceAlert: {
@@ -74,6 +77,7 @@ describe('AlertsService', () => {
       providers: [
         AlertsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: NotificationDispatcher, useValue: { dispatch } },
       ],
     }).compile();
     service = moduleRef.get(AlertsService);
@@ -156,6 +160,37 @@ describe('AlertsService', () => {
     expect(result.checked).toBe(1);
     expect(result.triggered).toHaveLength(1);
     expect(result.triggered[0].condition).toBe('lte');
+  });
+
+  it('checkPriceAlerts：命中后分派通知（携带正确载荷）', async () => {
+    const alert = makeAlert({
+      condition: 'gte',
+      target_price: new Prisma.Decimal('2500'),
+    });
+    findMany.mockResolvedValue([alert]);
+    snapshotFindFirst.mockResolvedValue(makeSnapshot('2600'));
+    update.mockResolvedValue(
+      makeAlert({
+        condition: 'gte',
+        target_price: new Prisma.Decimal('2500'),
+        status: 'triggered',
+        triggered_at: new Date('2026-01-03T00:00:00Z'),
+      }),
+    );
+
+    await service.checkPriceAlerts();
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    const [method, payload] = dispatch.mock.calls[0];
+    expect(method).toBe('in_app');
+    expect(payload).toMatchObject({
+      userAddress: USER,
+      type: 'price_alert_triggered',
+      title: 'WETH 价格提醒已触发',
+      body: 'WETH 现价已 ≥ 2500，触发你的价格提醒',
+      alertId: 'alert-1',
+      tokenAddress: WETH,
+    });
   });
 
   it('checkPriceAlerts：BigInt 定点比较正确（微差不会被 Float 抹平）', async () => {
