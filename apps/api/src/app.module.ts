@@ -16,6 +16,8 @@ import { PoolModule } from './modules/pool/pool.module';
 import { IndexerModule } from './indexer/indexer.module';
 import { ApprovalModule } from './modules/approval/approval.module';
 import { SecurityModule } from './modules/security/security.module';
+import { AlertsModule } from './modules/alerts/alerts.module';
+import { PreferencesModule } from './modules/preferences/preferences.module';
 
 @Module({
   imports: [
@@ -36,6 +38,8 @@ import { SecurityModule } from './modules/security/security.module';
     IndexerModule,
     ApprovalModule,
     SecurityModule,
+    AlertsModule,
+    PreferencesModule,
   ],
 })
 export class AppModule {}

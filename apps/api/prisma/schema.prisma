@@ -496,3 +496,41 @@ model MarketSnapshot {
   @@index([chain_id, token_address, created_at])
   @@map("market_snapshots")
 }
+
+// ---------- K. 价格提醒（V1.2 Price Alerts，面向用户） ----------
+// 与系统异常告警（alert_rules/anomaly_events/alert_notifications，面向运维）完全不同领域。
+// 惰性触发：复用 market_snapshots 最新快照比对 target_price，命中置 triggered。
+model PriceAlert {
+  id            String    @id @default(cuid())
+  user_address  String // 小写规范化
+  chain_id      Int
+  token_address String // 小写规范化
+  symbol        String // 冗余，方便展示
+  condition     String // gte / lte（涨到/跌到）
+  target_price  Decimal   @db.Decimal(78, 18) // 目标价（USD）
+  notify_method String    @default("in_app") // in_app / email / webhook
+  status        String    @default("active") // active / triggered / paused
+  triggered_at  DateTime?
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  @@index([user_address])
+  @@index([chain_id, token_address])
+  @@index([status])
+  @@map("price_alerts")
+}
+
+// ---------- L. 用户偏好（V1.2 Preferences） ----------
+model UserPreference {
+  id                   String   @id @default(cuid())
+  user_address         String   @unique // 小写规范化
+  default_slippage_bps Int      @default(50)
+  default_chain_id     Int      @default(8453)
+  default_deadline_sec Int      @default(1200)
+  notify_alerts        Boolean  @default(true)
+  favorite_tokens      String? // JSON 数组：[{chainId, address, symbol}]
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  @@map("user_preferences")
+}
