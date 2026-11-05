@@ -590,4 +590,48 @@ describe('SplitService', () => {
       BadRequestException,
     );
   });
+
+  it('二分探测 revert 兜底：超大金额报价失败时收缩上界，不抛异常', async () => {
+    // 池子真实流动性上限 60（超过即链上 getAmountOut revert），priceImpact 容量 60000
+    const RESERVE = 60n;
+    const CAPACITY = 60000n;
+    poolService.discoverPools.mockResolvedValue({
+      classicPools: [
+        { address: poolA, token0: tokenIn, token1: tokenOut, kind: 'classic-volatile', fee: '3000', feeRaw: '30' },
+        { address: poolB, token0: tokenIn, token1: tokenOut, kind: 'classic-volatile', fee: '3000', feeRaw: '30' },
+      ],
+      clPools: [],
+    });
+    poolService.quotePair.mockResolvedValue([
+      makeCandidate(poolA, '90', '0.05'),
+      makeCandidate(poolB, '80', '0.05'),
+    ]);
+    // 二分探测金额超过池流动性时 revert（模拟链上 getAmountOut revert）
+    classic.getQuote.mockImplementation((p: { poolAddress: string; amountIn: string }) => {
+      if (BigInt(p.amountIn) > RESERVE) {
+        return Promise.reject(
+          new Error('The contract function "getAmountOut" reverted'),
+        );
+      }
+      return Promise.resolve(makeQuote(p.poolAddress, p.amountIn, CAPACITY));
+    });
+    swapService.prepare.mockImplementation((req: unknown) =>
+      Promise.resolve(makePrepared(req as never, () => CAPACITY)),
+    );
+
+    const result = await service.prepareSplit({
+      chainId: 8453,
+      userAddress: user,
+      tokenIn,
+      tokenOut,
+      amountIn: '100',
+      priceImpactThreshold: '0.001',
+    });
+
+    // 不崩溃，金额守恒：poolA 承接 cap=60，poolB 承接剩余 40
+    expect(result.splits.length).toBe(2);
+    expect(result.splits.reduce((s, c) => s + BigInt(c.amountIn), 0n)).toBe(100n);
+    expect(result.splits[0].amountIn).toBe('60');
+    expect(result.splits[1].amountIn).toBe('40');
+  });
 });

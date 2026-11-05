@@ -593,14 +593,26 @@ export class SplitService {
         lo = 1n;
         continue;
       }
-      const q = await this.quoteCandidateAt(
-        chainId,
-        tokenIn,
-        tokenOut,
-        candidate,
-        mid.toString(),
-      );
-      if (parseDecimal(q.priceImpact, SCALE) <= thr) {
+      let priceImpact: string;
+      try {
+        const q = await this.quoteCandidateAt(
+          chainId,
+          tokenIn,
+          tokenOut,
+          candidate,
+          mid.toString(),
+        );
+        priceImpact = q.priceImpact;
+      } catch (err) {
+        // 探测金额超出池流动性时合约 getAmountOut revert（ChainReadError）。
+        // 视为「该 mid 不可行，priceImpact 必然超标」→ 收缩上界往小找，不冒泡成 500。
+        this.logger.warn(
+          `二分探测报价失败（pool=${candidate.pool.address}，amount=${mid}）: ${this.errMsg(err)}`,
+        );
+        hi = mid - 1n;
+        continue;
+      }
+      if (parseDecimal(priceImpact, SCALE) <= thr) {
         best = mid;
         lo = mid + 1n;
       } else {
