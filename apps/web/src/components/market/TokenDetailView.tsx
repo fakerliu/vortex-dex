@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, Copy, ExternalLink } from "lucide-react";
+import { useAccount } from "wagmi";
+import { ArrowLeft, Bell, Check, Copy, ExternalLink, Star } from "lucide-react";
 import { useTokenDetail } from "@/hooks/useTokenDetail";
+import { usePreferences } from "@/hooks/usePreferences";
 import { getTokenByAddress } from "@/config/tokens";
 import { getChain, getExplorerUrl } from "@/config/chains";
 import { formatUsd, truncateAddress } from "@/utils/format";
@@ -73,6 +75,9 @@ export function TokenDetailView({
   const { token, price, isLoading, isError, errorMessage, apiConfigured, refetch } =
     useTokenDetail(address, chainId);
 
+  const { address: userAddress, isConnected } = useAccount();
+  const prefs = usePreferences(userAddress);
+
   const local = getTokenByAddress(address, chainId);
   const chain = getChain(chainId);
   const explorerUrl = getExplorerUrl(chainId);
@@ -83,6 +88,20 @@ export function TokenDetailView({
   const logoURI = token?.logoURI ?? local?.logoURI;
   const verified = token?.verified ?? local?.verified ?? false;
   const risk = token?.risk ?? local?.risk ?? false;
+
+  const isFavorite =
+    prefs.data?.favoriteTokens.some(
+      (t) => t.address.toLowerCase() === address.toLowerCase(),
+    ) ?? false;
+
+  const toggleFavorite = async () => {
+    if (!userAddress) return;
+    if (isFavorite) {
+      await prefs.removeFavorite(address).catch(() => {});
+    } else {
+      await prefs.addFavorite({ chainId, address, symbol }).catch(() => {});
+    }
+  };
 
   const quoteSymbol = price?.quoteToken
     ? getTokenByAddress(price.quoteToken, price.chainId)?.symbol ??
@@ -144,6 +163,32 @@ export function TokenDetailView({
                   )}
                 </div>
                 <div className="truncate text-sm text-gray-500">{name}</div>
+              </div>
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                <Link
+                  href={`/alerts?chainId=${chainId}&tokenAddress=${address}&symbol=${encodeURIComponent(symbol)}`}
+                >
+                  <Button variant="secondary" size="small" className="w-full">
+                    <Bell className="h-3.5 w-3.5" aria-hidden />
+                    Set Alert
+                  </Button>
+                </Link>
+                <Button
+                  variant={isFavorite ? "primary" : "secondary"}
+                  size="small"
+                  onClick={() => void toggleFavorite()}
+                  disabled={!isConnected}
+                  loading={prefs.addFavoritePending || prefs.removeFavoritePending}
+                  title={
+                    isConnected
+                      ? undefined
+                      : "Connect a wallet to add favorites"
+                  }
+                  className="w-full"
+                >
+                  <Star className="h-3.5 w-3.5" aria-hidden />
+                  {isFavorite ? "Favorited" : "Favorite"}
+                </Button>
               </div>
             </Card>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { ArrowUpDown, Check, Settings2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
@@ -12,6 +12,7 @@ import { TokenSelector } from "@/components/token/TokenSelector";
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useQuote } from "@/hooks/useQuote";
 import { useSwapExecution } from "@/hooks/useSwapExecution";
+import { usePreferences } from "@/hooks/usePreferences";
 import { ReviewSwapModal } from "./ReviewSwapModal";
 import { SplitOrderFlow } from "./SplitOrderFlow";
 import {
@@ -36,7 +37,7 @@ const SLIPPAGE_OPTIONS = [
 ];
 
 export function SwapCard() {
-  const { isConnected, chainId } = useAccount();
+  const { isConnected, chainId, address } = useAccount();
 
   const [payToken, setPayToken] = useState<Token>(DEFAULT_PAY_TOKEN);
   const [receiveToken, setReceiveToken] = useState<Token>(DEFAULT_RECEIVE_TOKEN);
@@ -47,6 +48,16 @@ export function SwapCard() {
   const [routeOpen, setRouteOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [splitOpen, setSplitOpen] = useState(false);
+
+  // 连接钱包后读取用户默认滑点作为初始值（仅首次生效，之后尊重用户手动选择）。
+  const { data: preference } = usePreferences(address);
+  const slippageInitializedRef = useRef(false);
+  useEffect(() => {
+    if (preference && !slippageInitializedRef.current) {
+      slippageInitializedRef.current = true;
+      setSlippageBps(preference.defaultSlippageBps);
+    }
+  }, [preference]);
 
   // 钱包切换网络时，重置 pay/receive 为该链的默认代币（避免 token.chainId 与钱包 chainId 不一致）。
   useEffect(() => {
