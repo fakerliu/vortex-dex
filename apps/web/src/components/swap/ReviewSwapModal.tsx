@@ -1,13 +1,18 @@
 "use client";
 
 import { useMemo } from "react";
-import { Check, ExternalLink, Loader2, ShieldAlert } from "lucide-react";
+import { Check, ExternalLink, Loader2, ShieldAlert, Shuffle } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/utils/cn";
 import type { Token } from "@/types/token";
 import type { UseSwapExecutionResult } from "@/hooks/useSwapExecution";
-import { truncateAddress, formatTokenAmount } from "@/utils/format";
+import { shouldSuggestSplit } from "@/types/split";
+import {
+  truncateAddress,
+  formatTokenAmount,
+  priceImpactToPercent,
+} from "@/utils/format";
 
 /** 区块浏览器链接（按 chainId）。 */
 function explorerUrl(chainId: number, hash: string): string {
@@ -82,17 +87,25 @@ export function ReviewSwapModal({
   execution,
   payToken,
   receiveToken,
+  onSplit,
 }: {
   open: boolean;
   onClose: () => void;
   execution: UseSwapExecutionResult;
   payToken: Token;
   receiveToken: Token;
+  /** 用户选择「拆分为多路径执行」时回调（父组件负责打开拆单流程）。 */
+  onSplit?: () => void;
 }) {
   const { phase, prepared, approveTxHash, swapTxHash, error, busy, done } =
     execution;
 
   const needsApproval = prepared?.needsApproval ?? false;
+
+  // 价格影响达到阈值时提示拆单（仅在本单尚未执行前展示）
+  const suggestSplit = prepared ? shouldSuggestSplit(prepared.priceImpact) : false;
+  const showSuggestSplit =
+    suggestSplit && (phase === "needs-approval" || phase === "swapping");
 
   // approve 步骤状态
   const approveStatus: StepStatus = useMemo(() => {
@@ -163,6 +176,35 @@ export function ReviewSwapModal({
               label="Route"
               value={`${prepared.protocol} · ${prepared.route.length} hop${prepared.route.length > 1 ? "s" : ""}`}
             />
+          </div>
+        )}
+
+        {/* 拆单提示 */}
+        {showSuggestSplit && prepared && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <div className="flex items-start gap-2">
+              <Shuffle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-amber-800">
+                  High price impact detected
+                </p>
+                <p className="mt-0.5 text-xs text-amber-700">
+                  This trade has a price impact of{" "}
+                  {priceImpactToPercent(prepared.priceImpact)}%. Splitting into
+                  multiple routes can reduce your impact.
+                </p>
+              </div>
+            </div>
+            {onSplit && (
+              <Button
+                size="small"
+                variant="secondary"
+                className="mt-2 w-full"
+                onClick={onSplit}
+              >
+                Split into multiple routes
+              </Button>
+            )}
           </div>
         )}
 

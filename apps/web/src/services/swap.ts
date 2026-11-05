@@ -6,6 +6,13 @@ import type {
   SwapRecord,
 } from "@/types/swap";
 import type { SwapHistoryParams, SwapHistoryResult } from "@/types/history";
+import type {
+  PrepareSplitParams,
+  SplitPrepareResult,
+  SplitOrderDetail,
+  SubmitSplitChildParams,
+  SubmitSplitChildResult,
+} from "@/types/split";
 
 /** 执行引擎是否已配置（未配置时 UI 显示「待接入」，不发请求）。 */
 export function isSwapApiConfigured(): boolean {
@@ -61,6 +68,17 @@ const DETAIL_ERROR_MESSAGES: Record<string, string> = {
   NOT_FOUND: "Transaction not found.",
   SERVICE_UNAVAILABLE: "Transaction detail service is temporarily unavailable.",
   INTERNAL_ERROR: "Transaction detail service error. Please try again.",
+};
+
+/** 拆单路由接口错误码 -> 用户可读文案。 */
+const SPLIT_ERROR_MESSAGES: Record<string, string> = {
+  BAD_REQUEST: "Invalid split order request.",
+  VALIDATION_ERROR: "Invalid split order request.",
+  NOT_FOUND: "Split order not found.",
+  NO_ROUTE: "No available route for this pair.",
+  RPC_UNAVAILABLE: "Chain RPC is unreachable. Please try again.",
+  SERVICE_UNAVAILABLE: "Execution engine is temporarily unavailable.",
+  INTERNAL_ERROR: "Execution engine error. Please try again.",
 };
 
 function userMessage(
@@ -233,5 +251,58 @@ export async function getSwapDetail(id: string): Promise<SwapDetail> {
     { method: "GET" },
     DETAIL_ERROR_MESSAGES,
     "Transaction detail request failed",
+  );
+}
+
+/**
+ * 准备拆单：POST ${NEXT_PUBLIC_API_BASE_URL}/swaps/split/prepare。
+ * 返回母单汇总 + N 条子单已编码 calldata + 聚合授权（按 spender 分组）。
+ */
+export async function prepareSplit(
+  params: PrepareSplitParams,
+): Promise<SplitPrepareResult> {
+  return post<SplitPrepareResult>("/swaps/split/prepare", {
+    chainId: params.chainId,
+    userAddress: params.userAddress,
+    tokenIn: params.tokenIn,
+    tokenOut: params.tokenOut,
+    amountIn: params.amountIn,
+    ...(params.slippageBps !== undefined
+      ? { slippageBps: params.slippageBps }
+      : {}),
+    ...(params.intentId !== undefined ? { intentId: params.intentId } : {}),
+    ...(params.maxSplits !== undefined ? { maxSplits: params.maxSplits } : {}),
+  });
+}
+
+/**
+ * 回写已广播的子单：POST ${NEXT_PUBLIC_API_BASE_URL}/swaps/split/:id/submit-child。
+ * 每广播成功一条子单调用一次（非托管，只传公开 txHash）。
+ */
+export async function submitSplitChild(
+  splitOrderId: string,
+  params: SubmitSplitChildParams,
+): Promise<SubmitSplitChildResult> {
+  return post<SubmitSplitChildResult>(
+    `/swaps/split/${splitOrderId}/submit-child`,
+    {
+      childIndex: params.childIndex,
+      txHash: params.txHash,
+      amountOut: params.amountOut,
+    },
+  );
+}
+
+/**
+ * 母单详情与子单进度：GET ${NEXT_PUBLIC_API_BASE_URL}/swaps/split/:id。
+ */
+export async function getSplitOrder(
+  splitOrderId: string,
+): Promise<SplitOrderDetail> {
+  return request<SplitOrderDetail>(
+    `${apiBaseOrThrow()}/swaps/split/${splitOrderId}`,
+    { method: "GET" },
+    SPLIT_ERROR_MESSAGES,
+    "Split order request failed",
   );
 }

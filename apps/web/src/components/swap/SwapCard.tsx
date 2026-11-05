@@ -13,6 +13,7 @@ import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useQuote } from "@/hooks/useQuote";
 import { useSwapExecution } from "@/hooks/useSwapExecution";
 import { ReviewSwapModal } from "./ReviewSwapModal";
+import { SplitOrderFlow } from "./SplitOrderFlow";
 import {
   DEFAULT_PAY_TOKEN,
   DEFAULT_RECEIVE_TOKEN,
@@ -45,6 +46,7 @@ export function SwapCard() {
   const [slippageOpen, setSlippageOpen] = useState(false);
   const [routeOpen, setRouteOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [splitOpen, setSplitOpen] = useState(false);
 
   // 钱包切换网络时，重置 pay/receive 为该链的默认代币（避免 token.chainId 与钱包 chainId 不一致）。
   useEffect(() => {
@@ -295,6 +297,23 @@ export function SwapCard() {
         execution={execution}
         payToken={payToken}
         receiveToken={receiveToken}
+        onSplit={() => {
+          // 用户选择拆单：重置普通流程，切到拆单流程
+          execution.reset();
+          setReviewOpen(false);
+          setSplitOpen(true);
+        }}
+      />
+
+      <SplitOrderFlow
+        open={splitOpen}
+        onClose={() => {
+          setSplitOpen(false);
+        }}
+        payToken={payToken}
+        receiveToken={receiveToken}
+        amountIn={hasAmount ? parsedAmount.toString() : "0"}
+        slippageBps={slippageBps}
       />
 
       <TokenSelector
