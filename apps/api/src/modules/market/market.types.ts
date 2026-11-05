@@ -68,6 +68,7 @@ export interface RankingItem {
   verified: boolean;
   risk: boolean;
   priceUsd: string | null; // 十进制字符串，来自 market_snapshots
+  priceChange: string | null; // 涨跌幅（十进制字符串，可正可负），缺历史快照为 null
   quoteToken: string | null; // 价格基准 token 地址（小写）
   volumeUsd: string | null; // 十进制字符串，内部从 Swap 聚合估算的 USD 成交量
   authenticity: DataAuthenticity; // priceUsd 的真实度
@@ -78,11 +79,11 @@ export interface RankingItem {
 
 /**
  * GET /api/v1/market/ranking 的响应结构。
- * `sortBy` 为实际生效的排序方式（price_change 会回退为 price）。
+ * `sortBy` 为实际生效的排序方式。
  */
 export interface RankingResult {
   chainId: number;
-  sortBy: 'price' | 'volume';
+  sortBy: 'price' | 'volume' | 'price_change';
   limit: number;
   items: RankingItem[];
 }
