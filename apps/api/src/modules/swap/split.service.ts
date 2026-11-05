@@ -57,6 +57,21 @@ const MAX_SLIPPAGE_BPS = 10_000;
 /** 二分逼近最大迭代次数（2^48 ≈ 2.8e14，覆盖绝大多数 token 金额的 wei 数量级）。 */
 const MAX_BINARY_ITERATIONS = 48;
 
+/**
+ * classic-stable 池二分保守上界倍数（经验常数，方案 B 止血）。
+ *
+ * stable 池（Solidly x³y+xy³=k）链上 getAmountOut 在 amountIn 远超储备时，
+ * 其 _get_y 255 轮整数牛顿迭代不收敛会 revert("!y")。该 revert 无法用储备精确预判
+ * （amountOut 天然 < reserveOut，储备并非 revert 的直接触发点）。
+ * 本常数用「amountIn ≤ C·reserveIn」把二分起点从超大金额拉回安全区，缩短空转。
+ *
+ * 注意：这是经验值，保守且无理论保证，不是精确上界；仅作止血，不本地复刻 Solidly
+ * 曲线、不改 CL 池。C=10 的取值：稳定币池（如 WETH↔DAI）在偏离平价 10 倍储备量内
+ * 牛顿迭代通常可收敛，同时足够保守——宁可把起点压得偏低（二分多花几轮在安全区内），
+ * 也绝不冒险放高（起点若仍在 revert 区则空转依旧）。
+ */
+const STABLE_SAFE_MULTIPLE = 10n;
+
 /** 分配结果（供逐子单调 prepare）。 */
 interface Allocation {
   candidate: PoolQuoteCandidate;
@@ -615,8 +630,24 @@ export class SplitService {
       // 方向解析异常等极少数情况：回退到下方 RPC 二分
     }
 
-    let lo = 0n;
+    // 新增：classic-stable 池保守上界预判（方案 B 止血）。
+    // stable 池报价走链上 getAmountOut（Solidly x³y+xy³=k），amountIn 远超储备时
+    // 链上 _get_y 255 轮整数牛顿迭代不收敛 → revert("!y")。该 revert 无法用储备精确预判
+    // （amountOut 天然 < reserveOut），故用保守经验上界 amountIn ≤ C·reserveIn 把二分
+    // 起点从超大金额拉回安全区，缩短空转（见 stableSafeUpperBound 与 STABLE_SAFE_MULTIPLE）。
+    // CL 池保持现状不动；储备缺失时 stableSafeUpperBound 返回 null，等价既有行为。
     let hi = upperBound;
+    if (
+      candidate.protocolType === AERODROME_PROTOCOL_TYPE_CLASSIC &&
+      candidate.pool.kind === 'classic-stable'
+    ) {
+      const bound = this.stableSafeUpperBound(candidate, tokenIn, tokenOut);
+      if (bound !== null && bound < hi) {
+        hi = bound;
+      }
+    }
+
+    let lo = 0n;
     let best = 0n;
     let iter = 0;
 
@@ -717,6 +748,47 @@ export class SplitService {
       }
     }
     return best;
+  }
+
+  /**
+   * classic-stable 池保守上界：返回 C·reserveIn（BigInt 定点，C = STABLE_SAFE_MULTIPLE）。
+   * 方向解析失败、储备缺失或储备异常（≤0）时返回 null，由调用方回退到原 upperBound，
+   * 等价既有行为（跳过本优化走原 RPC 二分）。
+   *
+   * 说明：Solidly 曲线（x³y+xy³=k）链上 getAmountOut 在 amountIn 远超储备时，
+   * _get_y 255 轮整数牛顿迭代不收敛会 revert("!y")。amountOut 天然 < reserveOut，
+   * 储备并非 revert 的直接触发点，故无法精确预判安全上界；这里只做保守经验钳制。
+   */
+  private stableSafeUpperBound(
+    candidate: PoolQuoteCandidate,
+    tokenIn: string,
+    tokenOut: string,
+  ): bigint | null {
+    const reserve0Str = candidate.quote.reserve0;
+    const reserve1Str = candidate.quote.reserve1;
+    if (reserve0Str === undefined || reserve1Str === undefined) {
+      return null;
+    }
+    const reserve0 = BigInt(reserve0Str);
+    const reserve1 = BigInt(reserve1Str);
+
+    let reserveIn: bigint;
+    if (tokenIn === candidate.pool.token0 && tokenOut === candidate.pool.token1) {
+      reserveIn = reserve0;
+    } else if (tokenIn === candidate.pool.token1 && tokenOut === candidate.pool.token0) {
+      reserveIn = reserve1;
+    } else {
+      return null;
+    }
+
+    if (reserveIn <= 0n) {
+      return null;
+    }
+    const bound = reserveIn * STABLE_SAFE_MULTIPLE;
+    if (bound <= 0n) {
+      return null;
+    }
+    return bound;
   }
 
   /** classic-volatile 池本地价格影响（定点 BigInt），复用 adapter 同款纯函数。 */

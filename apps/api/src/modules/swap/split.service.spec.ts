@@ -810,4 +810,78 @@ describe('SplitService', () => {
     expect(cap).toBe(40n);
     expect(classic.getQuote).toHaveBeenCalled();
   });
+
+  // ---------- classic-stable 保守上界预判 ----------
+
+  it('stable 池保守上界预判：二分起点被钳到 C·reserveIn，探测金额不越界', async () => {
+    const RESERVE = 1000n;
+    const candidate = makeCandidate(poolA, '90', '0.05');
+    candidate.pool.kind = 'classic-stable';
+    candidate.quote.kind = 'classic-stable';
+    candidate.quote.source = 'onchain-getAmountOut';
+    candidate.quote.reserve0 = RESERVE.toString();
+    candidate.quote.reserve1 = RESERVE.toString();
+
+    const probed: bigint[] = [];
+    classic.getQuote.mockImplementation((p: { poolAddress: string; amountIn: string }) => {
+      const amt = BigInt(p.amountIn);
+      probed.push(amt);
+      // 线性模型 impact = amountIn/1e18，恒 ≤ 阈值 0.01 → cap 应爬满上界
+      return Promise.resolve(makeQuote(p.poolAddress, p.amountIn, 10n ** 18n));
+    });
+
+    const cap = await binarySearchCap(candidate, '0.01', 10n ** 18n);
+
+    // 起点被钳到 10 * reserveIn = 10000，探测金额永不超过该值
+    expect(probed.length).toBeGreaterThan(0);
+    for (const amt of probed) {
+      expect(amt).toBeLessThanOrEqual(10n * RESERVE);
+    }
+    expect(cap).toBe(10n * RESERVE);
+  });
+
+  it('stable 池保守上界预判：tokenIn 对应 token1 时按 reserve1 钳制', async () => {
+    const RESERVE0 = 100_000n; // token0 = tokenOut 的储备（巨大，不参与）
+    const RESERVE1 = 1000n; // token1 = tokenIn 的储备
+    const candidate = makeCandidate(poolA, '90', '0.05');
+    candidate.pool.token0 = tokenOut;
+    candidate.pool.token1 = tokenIn;
+    candidate.pool.kind = 'classic-stable';
+    candidate.quote.kind = 'classic-stable';
+    candidate.quote.source = 'onchain-getAmountOut';
+    candidate.quote.reserve0 = RESERVE0.toString();
+    candidate.quote.reserve1 = RESERVE1.toString();
+
+    const probed: bigint[] = [];
+    classic.getQuote.mockImplementation((p: { poolAddress: string; amountIn: string }) => {
+      const amt = BigInt(p.amountIn);
+      probed.push(amt);
+      return Promise.resolve(makeQuote(p.poolAddress, p.amountIn, 10n ** 18n));
+    });
+
+    const cap = await binarySearchCap(candidate, '0.01', 10n ** 18n);
+
+    // 上界应按 tokenIn（token1）的储备 1000 钳到 10000，而非 token0 的 100_000
+    for (const amt of probed) {
+      expect(amt).toBeLessThanOrEqual(10n * RESERVE1);
+    }
+    expect(cap).toBe(10n * RESERVE1);
+  });
+
+  it('stable 池储备缺失：跳过保守上界预判，回退原二分（不影响既有行为）', async () => {
+    const candidate = makeCandidate(poolA, '90', '0.05');
+    candidate.pool.kind = 'classic-stable';
+    candidate.quote.kind = 'classic-stable';
+    candidate.quote.source = 'onchain-getAmountOut';
+    // 无 reserve0/reserve1
+    classic.getQuote.mockImplementation((p: { poolAddress: string; amountIn: string }) =>
+      Promise.resolve(makeQuote(p.poolAddress, p.amountIn, 4000n)),
+    );
+
+    const cap = await binarySearchCap(candidate, '0.01', 100n);
+
+    // 线性模型 impact = amountIn/4000，阈值 0.01 → cap = 40
+    expect(cap).toBe(40n);
+    expect(classic.getQuote).toHaveBeenCalled();
+  });
 });
