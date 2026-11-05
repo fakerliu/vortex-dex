@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -52,7 +53,12 @@ export class AlertsController {
   }
 
   @Post('check')
-  check(): Promise<CheckAlertsResult> {
-    return this.alertsService.checkPriceAlerts();
+  check(@Body() body: { userAddress?: string }): Promise<CheckAlertsResult> {
+    if (!body?.userAddress || body.userAddress.trim().length === 0) {
+      throw new BadRequestException(
+        'check 需要 userAddress 参数（按用户隔离检查）',
+      );
+    }
+    return this.alertsService.checkPriceAlerts(body.userAddress.trim());
   }
 }

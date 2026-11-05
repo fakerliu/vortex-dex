@@ -172,6 +172,45 @@ describe('AlertsService', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  it('checkPriceAlerts：传入 user 时按用户过滤（不跨用户触发）', async () => {
+    const otherUser = '0x00000000000000000000000000000000000000bb';
+    findMany.mockResolvedValue([makeAlert()]);
+    snapshotFindFirst.mockResolvedValue(makeSnapshot('2600'));
+    update.mockResolvedValue(
+      makeAlert({
+        condition: 'gte',
+        target_price: new Prisma.Decimal('2500'),
+        status: 'triggered',
+        triggered_at: new Date('2026-01-03T00:00:00Z'),
+      }),
+    );
+
+    await service.checkPriceAlerts(otherUser);
+
+    // 断言 findMany 的 where 同时包含 status 与 user_address 过滤
+    const where = findMany.mock.calls[0][0].where;
+    expect(where.status).toBe('active');
+    expect(where.user_address).toBe(otherUser);
+  });
+
+  it('checkPriceAlerts：省略 user 时全局检查（系统惰性触发）', async () => {
+    findMany.mockResolvedValue([makeAlert()]);
+    snapshotFindFirst.mockResolvedValue(null);
+
+    await service.checkPriceAlerts();
+
+    const where = findMany.mock.calls[0][0].where;
+    expect(where.status).toBe('active');
+    expect(where.user_address).toBeUndefined();
+  });
+
+  it('checkPriceAlerts：传入非法 userAddress 抛 BadRequestException（不退化为全局检查）', async () => {
+    await expect(
+      service.checkPriceAlerts('not-an-address'),
+    ).rejects.toThrow('userAddress 不是合法的 EVM 地址');
+    expect(findMany).not.toHaveBeenCalled();
+  });
+
   it('updateAlert 找不到抛 NotFoundException', async () => {
     findUnique.mockResolvedValue(null);
 

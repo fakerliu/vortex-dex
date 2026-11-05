@@ -134,14 +134,26 @@ export class AlertsService {
   }
 
   /**
-   * 惰性触发核心：读所有 active 提醒，比对 market_snapshots 最新价格，
+   * 惰性触发核心：读 active 提醒，比对 market_snapshots 最新价格，
    * 命中则置 triggered + triggered_at。失败静默（不抛），不拖垮主流程。
+   *
+   * @param userAddress 可选用户范围过滤：传入时仅检查该用户的 active 提醒
+   *   （用户「立即检查」场景，防止跨用户触发/统计他人提醒）；省略时检查全量
+   *   active 提醒（MarketService 快照落库后的系统级惰性触发场景）。
+   *   地址校验在 try 外，非法地址直接抛 BadRequestException（400）。
    */
-  async checkPriceAlerts(): Promise<CheckAlertsResult> {
+  async checkPriceAlerts(userAddress?: string): Promise<CheckAlertsResult> {
+    // 手动触发传入的地址须显式校验（非法即 400），且必须在 try 外——
+    // 否则 BadRequestException 会被下方 catch 静默吞掉。
+    // 空字符串视为「传入但非法」，同样抛 400，绝不静默退化为全局检查。
+    const scopedAddress =
+      userAddress !== undefined ? this.assertUserAddress(userAddress) : undefined;
+
     try {
-      const active = await this.prisma.priceAlert.findMany({
-        where: { status: 'active' },
-      });
+      const where: Prisma.PriceAlertWhereInput = scopedAddress
+        ? { status: 'active', user_address: scopedAddress }
+        : { status: 'active' };
+      const active = await this.prisma.priceAlert.findMany({ where });
 
       const triggered: PriceAlertDto[] = [];
       for (const alert of active) {
