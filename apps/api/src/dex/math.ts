@@ -180,6 +180,161 @@ export function computePriceImpactFromSpot(params: {
   return formatFraction(num, den, 18);
 }
 
+/** Solidly stableswap 曲线（x³y + xy³ = k）的 1e18 定点基准。 */
+const WAD = 10n ** 18n;
+
+/**
+ * Solidly stableswap（x³y + xy³ = k）曲线报价。
+ *
+ * 与 Velodrome v2 / Aerodrome classic stable 池的链上 `Pool.getAmountOut` stable
+ * 分支逐 bit 一致：严格复刻 Solidity 的整数运算（BigInt 除法 = 向下取整 floor，
+ * 乘法 / 括号顺序照抄，禁止重排——重排会改变 floor 结果）。所有中间量按 1e18 定点。
+ *
+ * 返回 null 表示链上等价 revert：
+ * - `_get_y` 255 轮整数牛顿迭代不收敛（链上 `revert("!y")`）；
+ * - 中间下溢（如 `reserveB - y < 0`、`y - dy < 0`）或 `_d` 为 0（除零）。
+ *
+ * 纯函数：reserve/amountIn 为链上原始大整数；feeBps 为链上 bps（stable 池通常 5 =
+ * 0.05%）；decimals0/decimals1 为 token decimals，由调用方显式解析后传入。
+ *
+ * @param reserve0 token0 储备（链上原始整数）
+ * @param reserve1 token1 储备（链上原始整数）
+ * @param amountIn 输入金额（链上原始整数，未扣费）
+ * @param tokenInIsToken0 tokenIn 是否即 token0
+ * @param decimals0 token0 decimals
+ * @param decimals1 token1 decimals
+ * @param feeBps 链上费率 bps（如 5）
+ */
+export function getAmountOutSolidlyStable(params: {
+  reserve0: bigint;
+  reserve1: bigint;
+  amountIn: bigint;
+  tokenInIsToken0: boolean;
+  decimals0: number;
+  decimals1: number;
+  feeBps: bigint;
+}): bigint | null {
+  const {
+    reserve0,
+    reserve1,
+    amountIn,
+    tokenInIsToken0,
+    decimals0,
+    decimals1,
+    feeBps,
+  } = params;
+  if (amountIn <= 0n || reserve0 <= 0n || reserve1 <= 0n) {
+    return null;
+  }
+  if (
+    !Number.isInteger(decimals0) ||
+    decimals0 < 0 ||
+    !Number.isInteger(decimals1) ||
+    decimals1 < 0
+  ) {
+    return null;
+  }
+  if (feeBps < 0n) {
+    return null;
+  }
+
+  // 扣费（链上：amountIn -= amountIn * feeBps / 10000）
+  const amountInNet = amountIn - (amountIn * feeBps) / 10_000n;
+  if (amountInNet <= 0n) {
+    return 0n;
+  }
+
+  const xy = kSolidlyStable(reserve0, reserve1, decimals0, decimals1);
+  const r0n = (reserve0 * WAD) / 10n ** BigInt(decimals0);
+  const r1n = (reserve1 * WAD) / 10n ** BigInt(decimals1);
+
+  const reserveA = tokenInIsToken0 ? r0n : r1n;
+  const reserveB = tokenInIsToken0 ? r1n : r0n;
+  const amountInNorm =
+    (amountInNet * WAD) / 10n ** BigInt(tokenInIsToken0 ? decimals0 : decimals1);
+
+  const y = getYSolidlyStable(amountInNorm + reserveA, xy, reserveB);
+  if (y === null || y > reserveB) {
+    return null;
+  }
+  const amountOutNorm = reserveB - y;
+  const decimalsOut = tokenInIsToken0 ? decimals1 : decimals0;
+  return (amountOutNorm * 10n ** BigInt(decimalsOut)) / WAD;
+}
+
+/** Solidly `_k(x, y)`：按 decimals 归一化后计算不变式（stable 分支）。 */
+function kSolidlyStable(
+  x: bigint,
+  y: bigint,
+  decimals0: number,
+  decimals1: number,
+): bigint {
+  const _x = (x * WAD) / 10n ** BigInt(decimals0);
+  const _y = (y * WAD) / 10n ** BigInt(decimals1);
+  const _a = (_x * _y) / WAD;
+  const _b = (_x * _x) / WAD + (_y * _y) / WAD;
+  return (_a * _b) / WAD;
+}
+
+/** Solidly `_f(x0, y)`：x0³y + x0·y³ 的定点实现。 */
+function fSolidlyStable(x0: bigint, y: bigint): bigint {
+  const _a = (x0 * y) / WAD;
+  const _b = (x0 * x0) / WAD + (y * y) / WAD;
+  return (_a * _b) / WAD;
+}
+
+/** Solidly `_d(x0, y)`：_f 对 y 的偏导（定点）。括号顺序严格照抄链上。 */
+function dSolidlyStable(x0: bigint, y: bigint): bigint {
+  // ((3 * x0) * (y²/1e18)) / 1e18 + (((x0²/1e18) * x0) / 1e18)
+  return (3n * x0 * ((y * y) / WAD)) / WAD + (((x0 * x0) / WAD) * x0) / WAD;
+}
+
+/**
+ * Solidly `_get_y(x0, xy, y)`：整数牛顿迭代解 x0³y + x0·y³ = xy 中的 y。
+ * 255 轮不收敛返回 null（等价链上 revert("!y")）；中间下溢 / 除零也返回 null。
+ */
+function getYSolidlyStable(x0: bigint, xy: bigint, y: bigint): bigint | null {
+  for (let i = 0; i < 255; i++) {
+    const k = fSolidlyStable(x0, y);
+    const d = dSolidlyStable(x0, y);
+    if (d <= 0n) {
+      return null;
+    }
+    if (k < xy) {
+      let dy = ((xy - k) * WAD) / d;
+      if (dy === 0n) {
+        if (k === xy) {
+          return y;
+        }
+        if (fSolidlyStable(x0, y + 1n) > xy) {
+          return y + 1n;
+        }
+        dy = 1n;
+      }
+      y = y + dy;
+    } else {
+      let dy = ((k - xy) * WAD) / d;
+      if (dy === 0n) {
+        if (k === xy) {
+          return y;
+        }
+        if (y - 1n < 0n) {
+          return null; // 等价 Solidity 0.8 的 y-1 下溢 revert
+        }
+        if (fSolidlyStable(x0, y - 1n) < xy) {
+          return y;
+        }
+        dy = 1n;
+      }
+      if (dy > y) {
+        return null; // 等价 Solidity 0.8 的 y-dy 下溢 revert
+      }
+      y = y - dy;
+    }
+  }
+  return null; // 255 轮不收敛（链上 revert("!y")）
+}
+
 /** CL：由 sqrtPriceX96 计算 token1/token0 即期价分子分母（raw，不含 decimals）。 */
 export function sqrtPriceX96ToMidPrice(
   sqrtPriceX96: bigint,

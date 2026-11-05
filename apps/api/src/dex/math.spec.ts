@@ -6,6 +6,7 @@ import {
   formatFraction,
   formatPrice,
   getAmountOutConstantProduct,
+  getAmountOutSolidlyStable,
   maxAmountInConstantProduct,
   parseAmount,
   parseDecimal,
@@ -324,6 +325,115 @@ describe('dex/math 纯函数（金额精度）', () => {
           threshold: 10n ** 16n,
         }),
       ).toBe(0n);
+    });
+  });
+
+  // ---------- getAmountOutSolidlyStable ----------
+  describe('getAmountOutSolidlyStable（Solidly x³y+xy³=k 曲线，逐 bit 对齐链上）', () => {
+    // 金标池：Base Mainnet WETH/DAI classic-stable 池（token0=WETH, token1=DAI, 均 18 位）。
+    // reserve/amountOut 均来自链上 getAmountOut 实读（已交叉验证逐 bit 一致）。
+    const POOL = {
+      reserve0: 13206977571888271n,
+      reserve1: 89934894017962781962n,
+      decimals0: 18,
+      decimals1: 18,
+      feeBps: 5n,
+    };
+
+    it('正常报价（WETH→DAI，tokenInIsToken0=true）', () => {
+      const out = getAmountOutSolidlyStable({
+        reserve0: POOL.reserve0,
+        reserve1: POOL.reserve1,
+        amountIn: 10n ** 15n,
+        tokenInIsToken0: true,
+        decimals0: POOL.decimals0,
+        decimals1: POOL.decimals1,
+        feeBps: POOL.feeBps,
+      });
+      expect(out).toBe(2160621912901554543n);
+    });
+
+    it('方向（DAI→WETH，tokenInIsToken0=false）', () => {
+      const out = getAmountOutSolidlyStable({
+        reserve0: POOL.reserve0,
+        reserve1: POOL.reserve1,
+        amountIn: 10n ** 15n,
+        tokenInIsToken0: false,
+        decimals0: POOL.decimals0,
+        decimals1: POOL.decimals1,
+        feeBps: POOL.feeBps,
+      });
+      expect(out).toBe(440321192338n);
+    });
+
+    it('大额报价（1e17 WETH→DAI）与链上一致', () => {
+      const out = getAmountOutSolidlyStable({
+        reserve0: POOL.reserve0,
+        reserve1: POOL.reserve1,
+        amountIn: 10n ** 17n,
+        tokenInIsToken0: true,
+        decimals0: POOL.decimals0,
+        decimals1: POOL.decimals1,
+        feeBps: POOL.feeBps,
+      });
+      expect(out).toBe(45983973931404200994n);
+    });
+
+    it('不收敛返回 null（1e16 WETH→DAI 链上 revert("!y")）', () => {
+      const out = getAmountOutSolidlyStable({
+        reserve0: POOL.reserve0,
+        reserve1: POOL.reserve1,
+        amountIn: 10n ** 16n,
+        tokenInIsToken0: true,
+        decimals0: POOL.decimals0,
+        decimals1: POOL.decimals1,
+        feeBps: POOL.feeBps,
+      });
+      expect(out).toBeNull();
+    });
+
+    it('fee 扣减正确：feeBps 扣减等价于按比例缩小 amountIn', () => {
+      const amountIn = 10n ** 18n;
+      const feeBps = 100n; // 1%
+      const withFee = getAmountOutSolidlyStable({
+        reserve0: POOL.reserve0,
+        reserve1: POOL.reserve1,
+        amountIn,
+        tokenInIsToken0: true,
+        decimals0: POOL.decimals0,
+        decimals1: POOL.decimals1,
+        feeBps,
+      });
+      const net = amountIn - (amountIn * feeBps) / 10_000n;
+      const noFeeReduced = getAmountOutSolidlyStable({
+        reserve0: POOL.reserve0,
+        reserve1: POOL.reserve1,
+        amountIn: net,
+        tokenInIsToken0: true,
+        decimals0: POOL.decimals0,
+        decimals1: POOL.decimals1,
+        feeBps: 0n,
+      });
+      expect(withFee).not.toBeNull();
+      expect(withFee).toBe(noFeeReduced);
+    });
+
+    it('非法入参返回 null（金额/储备非正、decimals 非法、feeBps 负）', () => {
+      const base = {
+        reserve0: POOL.reserve0,
+        reserve1: POOL.reserve1,
+        amountIn: 10n ** 15n,
+        tokenInIsToken0: true,
+        decimals0: POOL.decimals0,
+        decimals1: POOL.decimals1,
+        feeBps: POOL.feeBps,
+      };
+      expect(getAmountOutSolidlyStable({ ...base, amountIn: 0n })).toBeNull();
+      expect(getAmountOutSolidlyStable({ ...base, reserve0: 0n })).toBeNull();
+      expect(getAmountOutSolidlyStable({ ...base, reserve1: 0n })).toBeNull();
+      expect(getAmountOutSolidlyStable({ ...base, decimals0: -1 })).toBeNull();
+      expect(getAmountOutSolidlyStable({ ...base, decimals1: 1.5 })).toBeNull();
+      expect(getAmountOutSolidlyStable({ ...base, feeBps: -1n })).toBeNull();
     });
   });
 

@@ -107,7 +107,11 @@ export interface QuoteResult {
   /** 价格影响（十进制字符串，如 "0.0012" = 0.12%）。CL 为近似值。 */
   priceImpact: string;
   /** 报价来源，用于交叉验证与审计。 */
-  source: 'onchain-getAmountOut' | 'quoter' | 'constant-product';
+  source:
+    | 'onchain-getAmountOut'
+    | 'quoter'
+    | 'constant-product'
+    | 'solidly-local';
   /** classic 池储备（链上原始大整数），随报价一并透传，供拆单解析式免二分复用。 */
   reserve0?: string;
   reserve1?: string;

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { GasEstimate, Pool, QuoteResult } from './types';
+import { getCatalogEntry } from '../chain/token-catalog';
 import { AerodromeClassicAdapter } from './aerodrome/aerodrome-classic.adapter';
 import { AerodromeClAdapter } from './aerodrome/aerodrome-cl.adapter';
 import { UniswapV3Adapter } from './uniswap-v3/uniswap-v3.adapter';
@@ -11,6 +12,11 @@ import {
   UNISWAP_V3_CHAIN_ID,
   UNISWAP_V3_PROTOCOL_TYPE,
 } from './uniswap-v3/constants';
+
+/** classic-stable 池失衡过滤：归一化储备比值上限（超过视为严重失衡）。 */
+const STABLE_IMBALANCE_RATIO = 100n;
+/** classic-stable 池失衡过滤：归一化后单侧储备最小绝对量（低于视为粉尘池）。 */
+const STABLE_MIN_NORMALIZED_RESERVE = 1n;
 
 /** 单池报价候选（含来源协议类型），供 Quote / Route 模块复用。 */
 export interface PoolQuoteCandidate {
@@ -77,6 +83,7 @@ export class DexPoolService {
     clPools: Pool[],
   ): Promise<PoolQuoteCandidate[]> {
     const candidates: PoolQuoteCandidate[] = [];
+    const imbalancedStable: PoolQuoteCandidate[] = [];
 
     for (const pool of classicPools) {
       const params = {
@@ -91,12 +98,16 @@ export class DexPoolService {
         const gas = quote.gasEstimate
           ? { gasLimit: quote.gasEstimate, source: 'static' as const, estimated: true }
           : await this.classic.estimateGas(params);
-        candidates.push({
+        const candidate: PoolQuoteCandidate = {
           pool,
           protocolType: AERODROME_PROTOCOL_TYPE_CLASSIC,
           quote,
           gas,
-        });
+        };
+        if (pool.kind === 'classic-stable' && this.isImbalancedStable(candidate)) {
+          imbalancedStable.push(candidate);
+        }
+        candidates.push(candidate);
       } catch (err) {
         this.logger.warn(`classic 池报价失败 ${pool.address}: ${this.errMsg(err)}`);
       }
@@ -126,6 +137,12 @@ export class DexPoolService {
       }
     }
 
+    // 失衡 stable 池过滤（兜底）：仅当剔除后仍有其它候选（volatile / CL）时才剔除，
+    // 否则保留以保住单路径可用（绝不把某 token 对的所有候选清空）。
+    if (imbalancedStable.length > 0 && candidates.length > imbalancedStable.length) {
+      const drop = new Set(imbalancedStable);
+      return candidates.filter((c) => !drop.has(c));
+    }
     return candidates;
   }
 
@@ -247,6 +264,45 @@ export class DexPoolService {
         : null;
     }
     return this.quoteBest(chainId, tokenIn, tokenOut, amountIn, useClassic, useCl);
+  }
+
+  /**
+   * 判断 classic-stable 池是否「严重失衡」，失衡的 stable 池报价质量差且易触发
+   * Solidly 曲线 revert，应从候选中剔除（但保留兜底，见 quotePair）。
+   *
+   * 归一化：r0n = reserve0 / 10^decimals0，r1n = reserve1 / 10^decimals1。
+   * 失衡判据：任一侧归一化储备 < 最小值（粉尘池），或两侧比值 > 阈值。
+   */
+  private isImbalancedStable(candidate: PoolQuoteCandidate): boolean {
+    if (candidate.pool.kind !== 'classic-stable') {
+      return false;
+    }
+    const r0 = candidate.quote.reserve0;
+    const r1 = candidate.quote.reserve1;
+    if (r0 === undefined || r1 === undefined) {
+      return false;
+    }
+    const chainId = candidate.pool.chainId;
+    const decimals0 = this.resolveDecimals(chainId, candidate.pool.token0);
+    const decimals1 = this.resolveDecimals(chainId, candidate.pool.token1);
+    const r0n = BigInt(r0) / 10n ** BigInt(decimals0);
+    const r1n = BigInt(r1) / 10n ** BigInt(decimals1);
+    if (r0n <= 0n || r1n <= 0n) {
+      return true;
+    }
+    if (
+      r0n < STABLE_MIN_NORMALIZED_RESERVE ||
+      r1n < STABLE_MIN_NORMALIZED_RESERVE
+    ) {
+      return true;
+    }
+    const ratio = r0n >= r1n ? r0n / r1n : r1n / r0n;
+    return ratio > STABLE_IMBALANCE_RATIO;
+  }
+
+  /** token decimals：token 目录优先（0 RPC），否则兜底 18。 */
+  private resolveDecimals(chainId: number, address: string): number {
+    return getCatalogEntry(chainId, address)?.decimals ?? 18;
   }
 
   private errMsg(err: unknown): string {

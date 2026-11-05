@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import type { PublicClient } from 'viem';
 import { ChainRpcService } from '../../chain/chain-rpc.service';
+import { Erc20ReaderService } from '../../chain/erc20-reader.service';
+import { getCatalogEntry } from '../../chain/token-catalog';
 import type { DexAdapter } from '../dex-adapter.interface';
 import type {
   GasEstimate,
@@ -14,6 +16,7 @@ import {
   computePriceImpact,
   computePriceImpactFromSpot,
   getAmountOutConstantProduct,
+  getAmountOutSolidlyStable,
   parseAmount,
 } from '../math';
 import {
@@ -45,7 +48,10 @@ import {
  */
 @Injectable()
 export class AerodromeClassicAdapter implements DexAdapter {
-  constructor(private readonly rpc: ChainRpcService) {}
+  constructor(
+    private readonly rpc: ChainRpcService,
+    private readonly erc20: Erc20ReaderService,
+  ) {}
 
   async getProtocolInfo(): Promise<ProtocolInfo> {
     return {
@@ -121,21 +127,38 @@ export class AerodromeClassicAdapter implements DexAdapter {
 
     const feePpm = BigInt(state.fee);
 
-    // stable 池走链上 getAmountOut（stableswap 不变式），volatile 走 V2 公式
+    // stable 池优先本地复刻 Solidly 曲线（零 RPC、不 revert），volatile 走 V2 公式
     let amountOut: bigint;
     let source: QuoteResult['source'];
     let priceImpact: string;
     if (state.kind === 'classic-stable') {
-      amountOut = await callView<bigint>({
-        client,
-        chainId: AERODROME_CHAIN_ID,
-        address: poolAddress,
-        abi: aerodromeClassicPoolAbi,
-        functionName: 'getAmountOut',
-        args: [amountIn, tokenIn],
-        label: `classic pool getAmountOut(${amountIn}, ${tokenIn})`,
+      // 本地复刻（与链上 getAmountOut stable 分支逐 bit 一致）
+      const tokenInIsToken0 = tokenIn === (state.token0 as `0x${string}`);
+      const localOut = getAmountOutSolidlyStable({
+        reserve0,
+        reserve1,
+        amountIn,
+        tokenInIsToken0,
+        decimals0: await this.resolveDecimals(state.token0),
+        decimals1: await this.resolveDecimals(state.token1),
+        feeBps: BigInt(state.feeRaw),
       });
-      source = 'onchain-getAmountOut';
+      if (localOut !== null) {
+        amountOut = localOut;
+        source = 'solidly-local';
+      } else {
+        // 本地不收敛（等价链上 revert）：回退链上 getAmountOut 兜底，行为等价现状
+        amountOut = await callView<bigint>({
+          client,
+          chainId: AERODROME_CHAIN_ID,
+          address: poolAddress,
+          abi: aerodromeClassicPoolAbi,
+          functionName: 'getAmountOut',
+          args: [amountIn, tokenIn],
+          label: `classic pool getAmountOut(${amountIn}, ${tokenIn})`,
+        });
+        source = 'onchain-getAmountOut';
+      }
       // stable 池无解析即期价，用小额 probe 交易的边际价近似即期价，再算价格影响
       const probeIn = reserveIn / 10_000n || 1n; // 约 0.01% 储备量
       const probeOut = await callView<bigint>({
@@ -201,6 +224,26 @@ export class AerodromeClassicAdapter implements DexAdapter {
 
   private client(): PublicClient {
     return this.rpc.getClient(AERODROME_CHAIN_ID);
+  }
+
+  /**
+   * 解析 token decimals：token 目录优先（0 RPC），否则回退链上读取，最终兜底 18。
+   * 链上读取失败也兜底 18，避免因 decimals 解析异常破坏整笔报价。
+   */
+  private async resolveDecimals(address: string): Promise<number> {
+    const entry = getCatalogEntry(AERODROME_CHAIN_ID, address);
+    if (entry) {
+      return entry.decimals;
+    }
+    try {
+      const meta = await this.erc20.readMetadata(AERODROME_CHAIN_ID, address);
+      if (Number.isInteger(meta.decimals) && meta.decimals >= 0) {
+        return meta.decimals;
+      }
+    } catch {
+      // 目录未收录且链上读取失败：兜底 18
+    }
+    return 18;
   }
 
   /** 组装 discovered 池子的元信息（token0/token1 + fee）。 */
