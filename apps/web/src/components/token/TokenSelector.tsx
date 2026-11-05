@@ -184,7 +184,9 @@ export function TokenSelector({
   const handleToggleFavorite = (token: Token) => {
     if (!address || !prefs.apiConfigured) return;
     if (isFavorite(token)) {
-      void prefs.removeFavorite(token.address.toLowerCase()).catch(() => {});
+      void prefs
+        .removeFavorite(token.chainId, token.address.toLowerCase())
+        .catch(() => {});
     } else {
       void prefs
         .addFavorite({

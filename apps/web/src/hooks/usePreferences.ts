@@ -25,7 +25,7 @@ export interface UsePreferencesResult {
   updatePending: boolean;
   addFavorite: (params: AddFavoriteParams) => Promise<UserPreference>;
   addFavoritePending: boolean;
-  removeFavorite: (tokenAddress: string) => Promise<UserPreference>;
+  removeFavorite: (chainId: number, tokenAddress: string) => Promise<UserPreference>;
   removeFavoritePending: boolean;
 }
 
@@ -64,8 +64,8 @@ export function usePreferences(
   });
 
   const removeFav = useMutation({
-    mutationFn: (tokenAddress: string) =>
-      removeFavorite(address!, tokenAddress),
+    mutationFn: (params: { chainId: number; tokenAddress: string }) =>
+      removeFavorite(address!, params.chainId, params.tokenAddress),
     onSuccess: apply,
   });
 
@@ -86,7 +86,8 @@ export function usePreferences(
     updatePending: update.isPending,
     addFavorite: (params) => addFav.mutateAsync(params),
     addFavoritePending: addFav.isPending,
-    removeFavorite: (tokenAddress) => removeFav.mutateAsync(tokenAddress),
+    removeFavorite: (chainId, tokenAddress) =>
+      removeFav.mutateAsync({ chainId, tokenAddress }),
     removeFavoritePending: removeFav.isPending,
   };
 }

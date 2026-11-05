@@ -91,13 +91,15 @@ export function TokenDetailView({
 
   const isFavorite =
     prefs.data?.favoriteTokens.some(
-      (t) => t.address.toLowerCase() === address.toLowerCase(),
+      (t) =>
+        t.chainId === chainId &&
+        t.address.toLowerCase() === address.toLowerCase(),
     ) ?? false;
 
   const toggleFavorite = async () => {
     if (!userAddress) return;
     if (isFavorite) {
-      await prefs.removeFavorite(address).catch(() => {});
+      await prefs.removeFavorite(chainId, address.toLowerCase()).catch(() => {});
     } else {
       await prefs.addFavorite({ chainId, address, symbol }).catch(() => {});
     }

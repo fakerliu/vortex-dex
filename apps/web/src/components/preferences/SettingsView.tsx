@@ -322,7 +322,9 @@ export function SettingsView() {
                       key={`${fav.chainId}-${fav.address}`}
                       fav={fav}
                       onRemove={() =>
-                        void prefs.removeFavorite(fav.address).catch(() => {})
+                        void prefs
+                          .removeFavorite(fav.chainId, fav.address)
+                          .catch(() => {})
                       }
                       busy={prefs.removeFavoritePending}
                     />

@@ -146,14 +146,15 @@ export async function addFavorite(
 }
 
 /**
- * 移除收藏：DELETE ${NEXT_PUBLIC_API_BASE_URL}/preferences/:address/favorites/:tokenAddress。
+ * 移除收藏：DELETE ${NEXT_PUBLIC_API_BASE_URL}/preferences/:address/favorites/:chainId/:tokenAddress。
  */
 export async function removeFavorite(
   address: string,
+  chainId: number,
   tokenAddress: string,
 ): Promise<UserPreference> {
   return request<UserPreference>(
-    `${apiBaseOrThrow()}/preferences/${address}/favorites/${tokenAddress}`,
+    `${apiBaseOrThrow()}/preferences/${address}/favorites/${chainId}/${tokenAddress}`,
     { method: "DELETE" },
   );
 }
