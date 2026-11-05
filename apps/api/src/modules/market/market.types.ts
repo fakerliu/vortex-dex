@@ -44,11 +44,9 @@ export interface MarketSnapshotResult {
 /**
  * 榜单排序方式（Explore 代币榜单）。
  *
- * 当前仅支持：
  * - 不传（默认）：按 priceUsd 降序（价格榜单）
  * - volume：按 volumeUsd 降序（成交量榜单）
- * - price_change：需历史快照，当前 MarketSnapshot 只存最新一条，
- *   暂无历史数据支撑，故暂时回退为 priceUsd 降序（见 service 注释）。
+ * - price_change：按 priceChange 降序（涨跌幅榜单，基于历史快照）
  */
 export type RankingSortBy = 'volume' | 'price_change';
 

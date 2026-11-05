@@ -14,6 +14,7 @@ import type {
  * - POST /api/v1/swaps/prepare：准备交易（报价 + 余额 + allowance + calldata）
  * - POST /api/v1/swaps/submit ：接收 tx_hash 写库（状态 PENDING）
  * - GET  /api/v1/swaps/history：按用户查历史
+ * - GET  /api/v1/swaps/by-tx/:txHash：按 txHash 查单笔交易
  * - GET  /api/v1/swaps/:id    ：查单笔交易
  *
  * 非托管：prepare 只产出 calldata 供前端钱包签名广播；submit 只收公开 tx_hash。
@@ -45,6 +46,11 @@ export class SwapController {
       page !== undefined ? Number(page) : undefined,
       limit !== undefined ? Number(limit) : undefined,
     );
+  }
+
+  @Get('by-tx/:txHash')
+  detailByTxHash(@Param('txHash') txHash: string): Promise<SwapDetailDto> {
+    return this.swapService.getSwapByTxHash(txHash);
   }
 
   @Get(':id')

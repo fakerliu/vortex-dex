@@ -271,7 +271,7 @@ export class MarketService {
     return 18;
   }
 
-  /** 落库一条最新快照（upsert）；失败仅告警，不影响返回。 */
+  /** 追加一条历史快照（create）；失败仅告警，不影响返回。 */
   private async persistSnapshot(
     chainId: number,
     token: TokenCatalogEntry,
@@ -279,22 +279,8 @@ export class MarketService {
   ): Promise<void> {
     try {
       const tokenAddress = normalizeAddress(token.address);
-      await this.prisma.marketSnapshot.upsert({
-        where: {
-          chain_id_token_address: {
-            chain_id: chainId,
-            token_address: tokenAddress,
-          },
-        },
-        update: {
-          price_usd: price.priceUsd,
-          quote_token: price.quoteToken,
-          liquidity_usd: null,
-          authenticity: price.authenticity,
-          source: price.source,
-          block_number: price.blockNumber,
-        },
-        create: {
+      await this.prisma.marketSnapshot.create({
+        data: {
           chain_id: chainId,
           token_address: tokenAddress,
           price_usd: price.priceUsd,

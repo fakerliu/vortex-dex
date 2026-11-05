@@ -308,6 +308,18 @@ export class SwapService {
     return this.buildSwapDetail(row);
   }
 
+  /** 按 txHash 查询交易详情：链上事件条目跳转交易详情时仅有 tx_hash 而无 swap id。 */
+  async getSwapByTxHash(txHash: string): Promise<SwapDetailDto> {
+    const normalized = this.assertTxHash(txHash);
+    const row = await this.prisma.swap.findUnique({
+      where: { tx_hash: normalized },
+    });
+    if (!row) {
+      throw new NotFoundException(`交易不存在（txHash=${txHash}）`);
+    }
+    return this.buildSwapDetail(row);
+  }
+
   // ---------- 交易详情与状态一致性（Sprint 8） ----------
 
   private async buildSwapDetail(row: Swap): Promise<SwapDetailDto> {

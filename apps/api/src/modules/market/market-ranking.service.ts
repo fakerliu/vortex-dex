@@ -65,7 +65,8 @@ function compareDesc(a: string | null, b: string | null): number {
  * 排序：
  * - 默认（未传 sortBy）按 priceUsd 降序。
  * - sortBy=volume 按 volumeUsd 降序（tie-break 价格降序再 symbol 升序）。
- * - sortBy=price_change 因暂无历史快照，回退为 priceUsd 降序。
+ * - sortBy=price_change 按 priceChange 降序（tie-break 价格降序再 symbol 升序）。
+ *   priceChange 由「最新快照 vs 最近前一条快照」定点计算，缺任一快照为 null。
  */
 @Injectable()
 export class MarketRankingService {
@@ -86,6 +87,7 @@ export class MarketRankingService {
       this.prisma.token.findMany({ where: { chain_id: resolvedChainId } }),
       this.prisma.marketSnapshot.findMany({
         where: { chain_id: resolvedChainId },
+        orderBy: [{ token_address: 'asc' }, { created_at: 'desc' }],
       }),
       this.aggregateVolume(resolvedChainId),
     ]);
@@ -93,14 +95,21 @@ export class MarketRankingService {
     const tokenByAddr = new Map<string, Token>(
       tokens.map((t) => [t.address, t]),
     );
-    const snapshotByAddr = new Map<string, MarketSnapshot>(
-      snapshots.map((s) => [s.token_address, s]),
-    );
+    // 每个 token 保留最新一条作为展示快照，最近的前一条作为涨跌幅对比基准。
+    const latestByAddr = new Map<string, MarketSnapshot>();
+    const prevByAddr = new Map<string, MarketSnapshot>();
+    for (const s of snapshots) {
+      if (!latestByAddr.has(s.token_address)) {
+        latestByAddr.set(s.token_address, s);
+      } else if (!prevByAddr.has(s.token_address)) {
+        prevByAddr.set(s.token_address, s);
+      }
+    }
 
     // 基集：Token 注册表 ∪ 快照表，确保无快照 token 也返回。
     const addresses = new Set<string>([
       ...tokenByAddr.keys(),
-      ...snapshotByAddr.keys(),
+      ...latestByAddr.keys(),
     ]);
 
     const items: RankingItem[] = [];
@@ -110,7 +119,8 @@ export class MarketRankingService {
           resolvedChainId,
           address,
           tokenByAddr.get(address),
-          snapshotByAddr.get(address),
+          latestByAddr.get(address),
+          prevByAddr.get(address),
           volumeMap,
         ),
       );
@@ -168,9 +178,14 @@ export class MarketRankingService {
     address: string,
     token: Token | undefined,
     snapshot: MarketSnapshot | undefined,
+    prevSnapshot: MarketSnapshot | undefined,
     volumeMap: Map<string, bigint> | null,
   ): RankingItem {
     const priceUsd = snapshot ? decimalToString(snapshot.price_usd) : null;
+    const priceChange = this.computePriceChange(
+      snapshot?.price_usd ?? null,
+      prevSnapshot?.price_usd ?? null,
+    );
     const decimals =
       token?.decimals ?? getCatalogEntry(chainId, address)?.decimals ?? 18;
 
@@ -197,6 +212,7 @@ export class MarketRankingService {
       verified: token?.is_verified ?? false,
       risk: token?.risk ?? false,
       priceUsd,
+      priceChange,
       quoteToken: snapshot?.quote_token ?? null,
       volumeUsd,
       authenticity: snapshot
@@ -208,12 +224,41 @@ export class MarketRankingService {
     };
   }
 
-  private sortItems(items: RankingItem[], sort: 'price' | 'volume'): void {
+  /**
+   * 涨跌幅 = (latest - prev) / prev，纯 BigInt 定点运算（18 位精度）。
+   * 缺任一价格或 prev 为零 → null。结果保留为可正可负的十进制字符串。
+   */
+  private computePriceChange(
+    latest: Prisma.Decimal | null | undefined,
+    prev: Prisma.Decimal | null | undefined,
+  ): string | null {
+    if (latest == null || prev == null) {
+      return null;
+    }
+    const prevFixed = parseDecimal(prev.toString(), PRICE_SCALE);
+    if (prevFixed === 0n) {
+      return null;
+    }
+    const latestFixed = parseDecimal(latest.toString(), PRICE_SCALE);
+    const diff = latestFixed - prevFixed;
+    const ratio = (diff * 10n ** PRICE_SCALE) / prevFixed;
+    return formatUnits(ratio.toString(), Number(PRICE_SCALE));
+  }
+
+  private sortItems(
+    items: RankingItem[],
+    sort: 'price' | 'volume' | 'price_change',
+  ): void {
     items.sort((a, b) => {
       if (sort === 'volume') {
         const v = compareDesc(a.volumeUsd, b.volumeUsd);
         if (v !== 0) {
           return v;
+        }
+      } else if (sort === 'price_change') {
+        const pc = compareDesc(a.priceChange, b.priceChange);
+        if (pc !== 0) {
+          return pc;
         }
       }
       const p = compareDesc(a.priceUsd, b.priceUsd);
@@ -224,9 +269,16 @@ export class MarketRankingService {
     });
   }
 
-  private resolveSort(sortBy?: RankingSortBy): 'price' | 'volume' {
-    // price_change 需历史快照，当前只存最新一条，暂回退为价格降序。
-    return sortBy === 'volume' ? 'volume' : 'price';
+  private resolveSort(
+    sortBy?: RankingSortBy,
+  ): 'price' | 'volume' | 'price_change' {
+    if (sortBy === 'volume') {
+      return 'volume';
+    }
+    if (sortBy === 'price_change') {
+      return 'price_change';
+    }
+    return 'price';
   }
 
   private resolveChainId(chainId?: number): number {
