@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DexPoolService } from '../../dex/dex-pool.service';
+import { AlertsService } from '../alerts/alerts.service';
 import { formatFraction, formatPrice, parseDecimal } from '../../dex/math';
 import { formatUnits } from '../../common/utils/units';
 import { ChainRpcService } from '../../chain/chain-rpc.service';
@@ -82,6 +83,7 @@ export class MarketService {
     private readonly prisma: PrismaService,
     private readonly dex: DexPoolService,
     private readonly rpc: ChainRpcService,
+    private readonly alerts: AlertsService,
   ) {}
 
   /** 单 token 价格（token→USDC 或 token→WETH→USDC 链上推导）。 */
@@ -201,6 +203,13 @@ export class MarketService {
       };
       items.push(dto);
       await this.persistSnapshot(resolvedChainId, token, price);
+    }
+
+    // 全部落库后统一触发一次价格提醒惰性检查（失败静默，不影响返回）。
+    try {
+      await this.alerts.checkPriceAlerts();
+    } catch (err) {
+      this.logger.warn(`惰性触发价格提醒失败: ${this.errMsg(err)}`);
     }
 
     return { chainId: resolvedChainId, blockNumber, items };
