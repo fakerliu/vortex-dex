@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { SplitService } from './split.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -127,7 +128,7 @@ describe('SplitService', () => {
   // mock 引用
   let prisma: {
     splitOrder: { create: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
-    splitChild: { createMany: jest.Mock; update: jest.Mock; findMany: jest.Mock };
+    splitChild: { createMany: jest.Mock; update: jest.Mock; findMany: jest.Mock; updateMany: jest.Mock };
     token: { findUnique: jest.Mock };
   };
   let poolService: {
@@ -136,7 +137,7 @@ describe('SplitService', () => {
     discoverUniswapV3Pools: jest.Mock;
     quoteUniswapV3Pair: jest.Mock;
   };
-  let swapService: { prepare: jest.Mock; submit: jest.Mock };
+  let swapService: { prepare: jest.Mock; submit: jest.Mock; tryReadReceipt: jest.Mock };
   let market: { getTokenPrice: jest.Mock };
   let classic: { getQuote: jest.Mock };
   let cl: { getQuote: jest.Mock };
@@ -153,6 +154,7 @@ describe('SplitService', () => {
         createMany: jest.fn(),
         update: jest.fn(),
         findMany: jest.fn(),
+        updateMany: jest.fn(),
       },
       token: { findUnique: jest.fn() },
     };
@@ -162,7 +164,7 @@ describe('SplitService', () => {
       discoverUniswapV3Pools: jest.fn(),
       quoteUniswapV3Pair: jest.fn(),
     };
-    swapService = { prepare: jest.fn(), submit: jest.fn() };
+    swapService = { prepare: jest.fn(), submit: jest.fn(), tryReadReceipt: jest.fn() };
     market = { getTokenPrice: jest.fn() };
     classic = { getQuote: jest.fn() };
     cl = { getQuote: jest.fn() };
@@ -430,5 +432,162 @@ describe('SplitService', () => {
 
     expect(result.splits.length).toBe(1);
     expect(result.notes.some((n) => n.includes('金额未达 USD 阈值'))).toBe(true);
+  });
+
+  it('priceImpactThreshold 覆盖：请求值生效，未达覆盖阈值 → 不拆分', async () => {
+    const capacity: Record<string, bigint> = { [poolA]: 4000n, [poolB]: 5000n };
+    poolService.discoverPools.mockResolvedValue({
+      classicPools: [
+        { address: poolA, token0: tokenIn, token1: tokenOut, kind: 'classic-volatile', fee: '3000', feeRaw: '30' },
+        { address: poolB, token0: tokenIn, token1: tokenOut, kind: 'classic-volatile', fee: '3000', feeRaw: '30' },
+      ],
+      clPools: [],
+    });
+    poolService.quotePair.mockResolvedValue([
+      makeCandidate(poolA, '90', '0.05'),
+      makeCandidate(poolB, '80', '0.05'),
+    ]);
+    swapService.prepare.mockImplementation((req: unknown) =>
+      Promise.resolve(makePrepared(req as never, (a) => capacity[a])),
+    );
+
+    const result = await service.prepareSplit({
+      chainId: 8453,
+      userAddress: user,
+      tokenIn,
+      tokenOut,
+      amountIn: '100',
+      priceImpactThreshold: '0.2',
+    });
+
+    // 默认阈值 0.01 下 0.05 会触发拆分；覆盖为 0.2 后未达阈值 → 回退单路径
+    expect(result.splits.length).toBe(1);
+    expect(result.splits[0].poolAddress).toBe(poolA);
+    expect(result.notes.some((n) => n.includes('未达阈值'))).toBe(true);
+  });
+
+  it('minAmountUsd 覆盖：非法值抛 BadRequestException', async () => {
+    await expect(
+      service.prepareSplit({
+        chainId: 8453,
+        userAddress: user,
+        tokenIn,
+        tokenOut,
+        amountIn: '100',
+        minAmountUsd: 'abc',
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('submitChild 链上 revert：子单置 FAILED，母单重算为 failed', async () => {
+    prisma.splitOrder.findUnique.mockResolvedValue({
+      id: 'order-1',
+      status: 'pending',
+      child_count: 1,
+      user_address: user,
+      chain_id: 8453,
+      token_in: tokenIn,
+      token_out: tokenOut,
+      amount_in: new Prisma.Decimal('100'),
+      intent_id: null,
+      children: [
+        {
+          id: 'child-1',
+          split_order_id: 'order-1',
+          order_index: 1,
+          status: 'pending',
+          amount_in: new Prisma.Decimal('100'),
+          amount_out: new Prisma.Decimal('100'),
+          pool_address: poolA,
+          protocol_type: 'aerodrome_classic',
+          price_impact: new Prisma.Decimal('0.01'),
+          swap_id: null,
+        },
+      ],
+    });
+    swapService.submit.mockResolvedValue({ id: 'swap-1' });
+    swapService.tryReadReceipt.mockResolvedValue({ status: 'reverted' });
+    prisma.splitChild.update.mockResolvedValue({ id: 'child-1' });
+    prisma.splitChild.findMany.mockResolvedValue([{ status: 'failed' }]);
+    prisma.splitOrder.update.mockResolvedValue({ id: 'order-1', status: 'failed' });
+
+    const result = await service.submitChild('order-1', {
+      childIndex: 1,
+      txHash: '0x' + 'a'.repeat(64),
+      amountOut: '100',
+    });
+
+    expect(prisma.splitChild.update).toHaveBeenCalledWith({
+      where: { id: 'child-1' },
+      data: { swap_id: 'swap-1', status: 'failed' },
+    });
+    expect(result.status).toBe('failed');
+  });
+
+  it('cancelSplitOrder：pending 母单可取消，pending 子单置 failed', async () => {
+    prisma.splitOrder.findUnique
+      .mockResolvedValueOnce({
+        id: 'order-1',
+        status: 'pending',
+        child_count: 2,
+        user_address: user,
+        chain_id: 8453,
+        token_in: tokenIn,
+        token_out: tokenOut,
+        amount_in: new Prisma.Decimal('100'),
+        intent_id: null,
+        children: [
+          { id: 'child-1', order_index: 1, status: 'pending' },
+          { id: 'child-2', order_index: 2, status: 'confirmed' },
+        ],
+      })
+      .mockResolvedValueOnce({
+        id: 'order-1',
+        status: 'cancelled',
+        child_count: 2,
+        amount_in: new Prisma.Decimal('100'),
+        token_in: tokenIn,
+        token_out: tokenOut,
+        chain_id: 8453,
+        children: [
+          { order_index: 1, pool_address: poolA, protocol_type: 'aerodrome_classic', amount_in: new Prisma.Decimal('50'), amount_out: new Prisma.Decimal('50'), status: 'failed', swap_id: null, swap: null },
+          { order_index: 2, pool_address: poolB, protocol_type: 'aerodrome_classic', amount_in: new Prisma.Decimal('50'), amount_out: new Prisma.Decimal('50'), status: 'confirmed', swap_id: 'swap-2', swap: { tx_hash: '0x' + 'b'.repeat(64) } },
+        ],
+      });
+    prisma.splitChild.updateMany.mockResolvedValue({ count: 1 });
+    prisma.splitOrder.update.mockResolvedValue({ id: 'order-1', status: 'cancelled' });
+
+    const result = await service.cancelSplitOrder('order-1');
+
+    expect(prisma.splitChild.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['child-1'] } },
+      data: { status: 'failed' },
+    });
+    expect(prisma.splitOrder.update).toHaveBeenCalledWith({
+      where: { id: 'order-1' },
+      data: { status: 'cancelled' },
+    });
+    expect(result.status).toBe('cancelled');
+    expect(result.children[0].status).toBe('failed');
+    expect(result.children[1].status).toBe('confirmed');
+  });
+
+  it('cancelSplitOrder：completed 母单不可取消，抛 400', async () => {
+    prisma.splitOrder.findUnique.mockResolvedValue({
+      id: 'order-1',
+      status: 'completed',
+      child_count: 1,
+      user_address: user,
+      chain_id: 8453,
+      token_in: tokenIn,
+      token_out: tokenOut,
+      amount_in: new Prisma.Decimal('100'),
+      intent_id: null,
+      children: [{ id: 'child-1', order_index: 1, status: 'confirmed' }],
+    });
+
+    await expect(service.cancelSplitOrder('order-1')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 });

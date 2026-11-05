@@ -98,6 +98,17 @@ export class SplitService {
     const amountIn = this.assertPositiveAmount(req.amountIn, 'amountIn');
     const slippageBps = this.normalizeSlippageBps(req.slippageBps);
     const maxSplits = this.normalizeMaxSplits(req.maxSplits);
+    // 阈值：请求体覆盖优先，否则读 env 默认；校验为正十进制数。
+    const minUsd = this.resolveDecimalParam(
+      req.minAmountUsd,
+      this.splitMinAmountUsd(),
+      'minAmountUsd',
+    );
+    const threshold = this.resolveDecimalParam(
+      req.priceImpactThreshold,
+      this.splitPriceImpactThreshold(),
+      'priceImpactThreshold',
+    );
 
     // 1. 拿全量候选（各自含独立 priceImpact 与 amountOut）
     const candidates = await this.discoverCandidates(
@@ -118,13 +129,13 @@ export class SplitService {
 
     // 2. 判定是否拆分
     const best = this.bestCandidate(candidates);
-    const threshold = this.splitPriceImpactThreshold();
     const bestImpact = parseDecimal(best.quote.priceImpact, SCALE);
     const bestImpactExceeds = bestImpact >= parseDecimal(threshold, SCALE);
     const amountMeetsUsd = await this.amountMeetsUsdThreshold(
       chainId,
       tokenIn,
       amountIn,
+      minUsd,
     );
 
     const notes: string[] = [];
@@ -314,9 +325,31 @@ export class SplitService {
       ...(order.intent_id ? { intentId: order.intent_id } : {}),
     });
 
+    // 读链上回执判定实际状态：revert → FAILED；成功/未上链 → 乐观 CONFIRMED。
+    // swap 表状态由 swap 模块自己管，这里只负责 split_children.status。
+    let childStatus: SplitChildStatus = SplitChildStatus.CONFIRMED;
+    const receipt = await this.swapService.tryReadReceipt(
+      order.chain_id,
+      req.txHash,
+    );
+    if (receipt === 'rpc_error') {
+      this.logger.warn(
+        `读取子单回执失败（rpc_error），保持 CONFIRMED 乐观状态（child=${child.id}，tx=${req.txHash}）`,
+      );
+    } else if (receipt) {
+      if (receipt.status === 'success') {
+        childStatus = SplitChildStatus.CONFIRMED;
+      } else {
+        childStatus = SplitChildStatus.FAILED;
+        this.logger.warn(
+          `子单链上 revert，置为 FAILED（child=${child.id}，tx=${req.txHash}）`,
+        );
+      }
+    }
+
     await this.prisma.splitChild.update({
       where: { id: child.id },
-      data: { swap_id: swap.id, status: SplitChildStatus.CONFIRMED },
+      data: { swap_id: swap.id, status: childStatus },
     });
 
     const status = await this.recomputeOrderStatus(order.id);
@@ -361,6 +394,41 @@ export class SplitService {
         txHash: c.swap?.tx_hash ?? null,
       })),
     };
+  }
+
+  async cancelSplitOrder(splitOrderId: string): Promise<SplitOrderDetailDto> {
+    const order = await this.prisma.splitOrder.findUnique({
+      where: { id: splitOrderId },
+      include: { children: true },
+    });
+    if (!order) {
+      throw new NotFoundException(`拆单母单不存在（id=${splitOrderId}）`);
+    }
+    if (
+      order.status === SplitOrderStatus.COMPLETED ||
+      order.status === SplitOrderStatus.FAILED ||
+      order.status === SplitOrderStatus.CANCELLED
+    ) {
+      throw new BadRequestException('母单已终态，无法取消');
+    }
+
+    // 已 confirmed 子单保持（已上链不可撤回）；仅 pending 子单置 failed。
+    const pendingIds = order.children
+      .filter((c) => c.status === SplitChildStatus.PENDING)
+      .map((c) => c.id);
+    if (pendingIds.length > 0) {
+      await this.prisma.splitChild.updateMany({
+        where: { id: { in: pendingIds } },
+        data: { status: SplitChildStatus.FAILED },
+      });
+    }
+
+    await this.prisma.splitOrder.update({
+      where: { id: splitOrderId },
+      data: { status: SplitOrderStatus.CANCELLED },
+    });
+
+    return this.getSplitOrder(splitOrderId);
   }
 
   // ---------- 候选发现与报价 ----------
@@ -594,13 +662,13 @@ export class SplitService {
 
   // ---------- USD 阈值换算 ----------
 
-  /** amountIn 换算 USD 是否 ≥ SPLIT_MIN_AMOUNT_USD；换算失败跳过金额条件（返回 true）。 */
+  /** amountIn 换算 USD 是否 ≥ minUsd；换算失败跳过金额条件（返回 true）。 */
   private async amountMeetsUsdThreshold(
     chainId: number,
     tokenIn: string,
     amountIn: bigint,
+    minUsd: string,
   ): Promise<boolean> {
-    const minUsd = this.splitMinAmountUsd();
     let priceUsd: string | null = null;
     try {
       priceUsd = (await this.market.getTokenPrice(chainId, tokenIn)).priceUsd;
@@ -696,6 +764,22 @@ export class SplitService {
   private splitPriceImpactThreshold(): string {
     const raw = (process.env.SPLIT_PRICE_IMPACT_THRESHOLD ?? '0.01').trim();
     return raw.length > 0 ? raw : '0.01';
+  }
+
+  /** 解析阈值参数：请求覆盖优先，否则用 env 默认；校验为合法正十进制数。 */
+  private resolveDecimalParam(
+    override: string | undefined,
+    fallback: string,
+    label: string,
+  ): string {
+    const raw = override !== undefined ? String(override).trim() : '';
+    const value = raw.length > 0 ? raw : fallback;
+    if (!/^\d+(\.\d+)?$/.test(value) || parseDecimal(value, SCALE) <= 0n) {
+      throw new BadRequestException(
+        `${label} 必须是正十进制数（如 "0.01" 或 "100000"）`,
+      );
+    }
+    return value;
   }
 
   private splitMaxChildren(): number {

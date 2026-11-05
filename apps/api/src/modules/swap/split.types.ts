@@ -41,6 +41,10 @@ export interface SplitPrepareRequestDto {
   intentId?: string;
   /** 最大拆分数，可选，缺省读 env SPLIT_MAX_CHILDREN。 */
   maxSplits?: number;
+  /** 最小金额 USD 阈值（覆盖 SPLIT_MIN_AMOUNT_USD），可选，十进制字符串。 */
+  minAmountUsd?: string;
+  /** 价格影响阈值（覆盖 SPLIT_PRICE_IMPACT_THRESHOLD），可选，十进制字符串。 */
+  priceImpactThreshold?: string;
 }
 
 /** 拆分结果中的单个子单（含独立执行所需的 calldata / 授权 / 最小接受）。 */

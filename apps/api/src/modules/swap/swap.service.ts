@@ -400,7 +400,8 @@ export class SwapService {
     };
   }
 
-  private async tryReadReceipt(
+  /** 读链上交易回执。供拆单模块（SplitService）复用，判定子单实际链上状态。 */
+  public async tryReadReceipt(
     chainId: number,
     txHash: string,
   ): Promise<TransactionReceipt | null | 'rpc_error'> {
