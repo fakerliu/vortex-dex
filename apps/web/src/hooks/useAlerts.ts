@@ -71,7 +71,7 @@ export function useAlerts(address: string | undefined): UseAlertsResult {
   });
 
   const check = useMutation({
-    mutationFn: () => checkAlerts(),
+    mutationFn: () => checkAlerts(address!),
     onSuccess: invalidate,
   });
 

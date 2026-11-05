@@ -203,10 +203,13 @@ export async function deleteAlert(id: string): Promise<void> {
 
 /**
  * 手动触发一次惰性检查：POST ${NEXT_PUBLIC_API_BASE_URL}/alerts/check。
+ * 按用户隔离，仅检查当前用户的 active 提醒。
  */
-export async function checkAlerts(): Promise<CheckAlertsResult> {
+export async function checkAlerts(
+  userAddress: string,
+): Promise<CheckAlertsResult> {
   return request<CheckAlertsResult>(
     `${apiBaseOrThrow()}/alerts/check`,
-    jsonBody({}),
+    jsonBody({ userAddress }),
   );
 }
