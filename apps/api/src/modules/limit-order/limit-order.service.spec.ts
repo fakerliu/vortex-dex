@@ -353,6 +353,24 @@ describe('LimitOrderService', () => {
       expect(fields.deadline).toBe(expectedDeadline);
       expect(fields.recipient).toBe(USER);
     });
+
+    it('极小 amountIn 导致 min_amount_out=0 -> 抛 BadRequest', async () => {
+      // 1 wei WETH(18) 按 0.0004 换 USDC(6)：floor 后 min_amount_out = 0
+      await expect(
+        service.createOrder({
+          userAddress: USER,
+          chainId: 8453,
+          tokenIn: WETH,
+          tokenOut: USDC,
+          amountIn: '1',
+          limitPrice: '0.0004',
+          slippageBps: 0,
+        }),
+      ).rejects.toThrow('限价单最少输出不能为 0');
+      // 守卫在 prepare / 落库之前，二者都不应被调用
+      expect(prepare).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+    });
   });
 
   describe('submitSignature（真实签名）', () => {

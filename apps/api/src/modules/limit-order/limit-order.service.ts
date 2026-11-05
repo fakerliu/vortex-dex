@@ -105,6 +105,14 @@ export class LimitOrderService {
       this.resolveDecimals(chainId, tokenOut),
     );
 
+    // 守卫：极小金额（dust）会让 min_amount_out floor 到 0，amountOutMin=0
+    // 会使 keeper 触发条件恒成立且零滑点保护，属真实正确性隐患，直接拒绝。
+    if (minAmountOut === 0n) {
+      throw new BadRequestException(
+        '限价单最少输出不能为 0，请提高输入金额或调整限价',
+      );
+    }
+
     // 复用 SwapService.prepare：解析路由 + 查余额/allowance + 构造 approve calldata。
     // prepare 的 swap calldata 里 amountOutMin=滑点值、deadline=now+短时，此处不采用，
     // 只复用其 route（hops）与 approval / 余额 / allowance。
