@@ -811,9 +811,9 @@ describe('SplitService', () => {
     expect(classic.getQuote).toHaveBeenCalled();
   });
 
-  // ---------- classic-stable 保守上界预判 ----------
+  // ---------- classic-stable 二分上界钳制 ----------
 
-  it('stable 池保守上界预判：二分起点被钳到 C·reserveIn，探测金额不越界', async () => {
+  it('stable 池上界钳制：二分起点被钳到 C·reserveIn，探测金额不越界', async () => {
     const RESERVE = 1000n;
     const candidate = makeCandidate(poolA, '90', '0.05');
     candidate.pool.kind = 'classic-stable';
@@ -840,7 +840,7 @@ describe('SplitService', () => {
     expect(cap).toBe(10n * RESERVE);
   });
 
-  it('stable 池保守上界预判：tokenIn 对应 token1 时按 reserve1 钳制', async () => {
+  it('stable 池上界钳制：tokenIn 对应 token1 时按 reserve1 钳制', async () => {
     const RESERVE0 = 100_000n; // token0 = tokenOut 的储备（巨大，不参与）
     const RESERVE1 = 1000n; // token1 = tokenIn 的储备
     const candidate = makeCandidate(poolA, '90', '0.05');
@@ -868,7 +868,7 @@ describe('SplitService', () => {
     expect(cap).toBe(10n * RESERVE1);
   });
 
-  it('stable 池储备缺失：跳过保守上界预判，回退原二分（不影响既有行为）', async () => {
+  it('stable 池储备缺失：跳过上界钳制，回退原二分（不影响既有行为）', async () => {
     const candidate = makeCandidate(poolA, '90', '0.05');
     candidate.pool.kind = 'classic-stable';
     candidate.quote.kind = 'classic-stable';
