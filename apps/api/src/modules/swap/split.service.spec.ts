@@ -10,6 +10,11 @@ import { UniswapV3Adapter } from '../../dex/uniswap-v3/uniswap-v3.adapter';
 import { SwapService } from './swap.service';
 import { MarketService } from '../market/market.service';
 import { formatUnits } from '../../common/utils/units';
+import {
+  computePriceImpact,
+  getAmountOutConstantProduct,
+  parseDecimal,
+} from '../../dex/math';
 
 /** 40 hex 字符地址（满足 isValidAddress）。 */
 const ADDR = (c: string) => `0x${c.repeat(40)}`;
@@ -120,6 +125,55 @@ function makePrepared(req: {
     quoteTimestamp: '2026-01-01T00:00:00Z',
     notes: [],
   };
+}
+
+/** 本地恒定乘积价格影响（定点 BigInt，与 adapter 同款纯函数）。 */
+function localImpact(
+  reserveIn: bigint,
+  reserveOut: bigint,
+  feePpm: bigint,
+  amountIn: bigint,
+): bigint {
+  const amountOut = getAmountOutConstantProduct({
+    reserveIn,
+    reserveOut,
+    amountIn,
+    feePpm,
+  });
+  const priceImpact = computePriceImpact({
+    amountIn,
+    amountOut,
+    midNum: reserveOut,
+    midDen: reserveIn,
+  });
+  return parseDecimal(priceImpact, 18n);
+}
+
+/** 参考实现：对纯函数做二分（模拟链上 getAmountOut），作为解析式结果的对照。 */
+function referenceBinaryCap(
+  reserveIn: bigint,
+  reserveOut: bigint,
+  feePpm: bigint,
+  thr: bigint,
+  upperBound: bigint,
+): bigint {
+  let lo = 0n;
+  let hi = upperBound;
+  let best = 0n;
+  while (lo <= hi) {
+    const mid = (lo + hi) / 2n;
+    if (mid === 0n) {
+      lo = 1n;
+      continue;
+    }
+    if (localImpact(reserveIn, reserveOut, feePpm, mid) <= thr) {
+      best = mid;
+      lo = mid + 1n;
+    } else {
+      hi = mid - 1n;
+    }
+  }
+  return best;
 }
 
 describe('SplitService', () => {
@@ -654,5 +708,106 @@ describe('SplitService', () => {
     expect(cap).toBe(100n);
     // 快速路径应直接返回，不再触发任何 RPC 探测报价
     expect(classic.getQuote).not.toHaveBeenCalled();
+  });
+
+  // ---------- classic-volatile 解析式免二分 ----------
+
+  type BinarySearchCapFn = (
+    chainId: number,
+    tokenIn: string,
+    tokenOut: string,
+    candidate: PoolQuoteCandidate,
+    threshold: string,
+    upperBound: bigint,
+  ) => Promise<bigint>;
+
+  // 以方法调用形式触发（绑定 this），避免裸函数调用导致 this 为 undefined
+  const binarySearchCap = (
+    candidate: PoolQuoteCandidate,
+    threshold: string,
+    upperBound: bigint,
+  ): Promise<bigint> =>
+    (service as unknown as { binarySearchCap: BinarySearchCapFn }).binarySearchCap(
+      8453,
+      tokenIn,
+      tokenOut,
+      candidate,
+      threshold,
+      upperBound,
+    );
+
+  it('解析式免二分：cap 与纯函数二分一致，且不触发探测 RPC', async () => {
+    const RESERVE0 = 1_000_000n;
+    const RESERVE1 = 2_000_000n;
+    const FEE = 3000n;
+    const THRESHOLD = '0.01';
+    const thr = parseDecimal(THRESHOLD, 18n);
+
+    const candidate = makeCandidate(poolA, '90', '0.05');
+    candidate.quote.reserve0 = RESERVE0.toString();
+    candidate.quote.reserve1 = RESERVE1.toString();
+
+    const reference = referenceBinaryCap(RESERVE0, RESERVE1, FEE, thr, 1_000_000n);
+    const cap = await binarySearchCap(candidate, THRESHOLD, 1_000_000n);
+
+    expect(cap).toBe(reference);
+    // 解析式路径不应触发任何 RPC 探测报价（getQuote 未被调用）
+    expect(classic.getQuote).not.toHaveBeenCalled();
+    // 边界校验：cap 处价格影响 ≤ 阈值，cap+1 处 > 阈值
+    expect(localImpact(RESERVE0, RESERVE1, FEE, cap)).toBeLessThanOrEqual(thr);
+    expect(localImpact(RESERVE0, RESERVE1, FEE, cap + 1n)).toBeGreaterThan(thr);
+  });
+
+  it('解析式免二分：tokenIn 对应 token1 时方向解析正确', async () => {
+    const RESERVE0 = 2_000_000n; // token0 = tokenOut 的储备
+    const RESERVE1 = 1_000_000n; // token1 = tokenIn 的储备
+    const FEE = 3000n;
+    const THRESHOLD = '0.01';
+    const thr = parseDecimal(THRESHOLD, 18n);
+
+    const candidate = makeCandidate(poolA, '90', '0.05');
+    candidate.pool.token0 = tokenOut;
+    candidate.pool.token1 = tokenIn;
+    candidate.quote.reserve0 = RESERVE0.toString();
+    candidate.quote.reserve1 = RESERVE1.toString();
+
+    const reference = referenceBinaryCap(RESERVE1, RESERVE0, FEE, thr, 1_000_000n);
+    const cap = await binarySearchCap(candidate, THRESHOLD, 1_000_000n);
+
+    expect(cap).toBe(reference);
+    expect(classic.getQuote).not.toHaveBeenCalled();
+  });
+
+  it('解析式免二分：cap 不超过 upperBound', async () => {
+    // 现实量级储备（1e18 wei），避免整数 floor 在极小金额下被量化误差主导
+    const RESERVE0 = 10n ** 18n;
+    const RESERVE1 = 10n ** 18n;
+    const FEE = 3000n;
+    const THRESHOLD = '0.01';
+    const UPPER = 10n ** 15n; // 解析式 cap 约 7.09e15，UPPER 在其之下且 priceImpact < 阈值
+
+    const candidate = makeCandidate(poolA, '90', '0.05');
+    candidate.quote.reserve0 = RESERVE0.toString();
+    candidate.quote.reserve1 = RESERVE1.toString();
+
+    const cap = await binarySearchCap(candidate, THRESHOLD, UPPER);
+
+    expect(cap).toBe(UPPER);
+    expect(classic.getQuote).not.toHaveBeenCalled();
+  });
+
+  it('解析式免二分：储备缺失时回退 RPC 二分（不影响既有行为）', async () => {
+    // 无 reserve0/reserve1 的候选（如旧数据或 mock）应回退到 RPC 二分
+    const candidate = makeCandidate(poolA, '90', '0.05');
+    const capacity: Record<string, bigint> = { [poolA]: 4000n };
+    classic.getQuote.mockImplementation((p: { poolAddress: string; amountIn: string }) =>
+      Promise.resolve(makeQuote(p.poolAddress, p.amountIn, capacity[p.poolAddress])),
+    );
+
+    const cap = await binarySearchCap(candidate, '0.01', 100n);
+
+    // 线性模型 impact = amountIn/4000，阈值 0.01 → cap = 40
+    expect(cap).toBe(40n);
+    expect(classic.getQuote).toHaveBeenCalled();
   });
 });

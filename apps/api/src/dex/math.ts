@@ -57,6 +57,66 @@ export function getAmountOutConstantProduct(params: {
   return (reserveOut * amountInWithFee) / (reserveIn + amountInWithFee);
 }
 
+/** 费率基准：1e6 = 100%（ppm）。 */
+const PPM = 1_000_000n;
+
+/**
+ * 恒定乘积（x*y=k）池：反解「价格影响 ≤ 阈值」前提下的最大可输入金额。
+ *
+ * 价格影响关于 amountIn 单调不减（见下方推导），因此可解析反解，无需二分 RPC：
+ *
+ *   amountInWithFee = amountIn * (1e6 - feePpm) / 1e6
+ *   amountOut       = reserveOut * amountInWithFee / (reserveIn + amountInWithFee)
+ *   priceImpact     = 1 - (amountOut / amountIn) / (reserveOut / reserveIn)
+ *                   = (reserveIn*feePpm + F*amountIn) / (reserveIn*1e6 + F*amountIn)
+ *   其中 F = 1e6 - feePpm
+ *
+ *   令 priceImpact ≤ thr（thr 为定点 BigInt，scale 位小数），解出：
+ *     amountIn ≤ reserveIn * (thr*1e6 - feePpm*10^scale) / (F * (10^scale - thr))
+ *
+ * 返回最大整数值（向下取整）。当阈值 ≤ 池子费率（feePpm/1e6，即 amountIn=0 时的
+ * 价格影响）时，任何金额都超标，返回 0。
+ *
+ * 注意：本函数对应「无 floor 的精确除法」模型。实际 `getAmountOutConstantProduct`
+ * 有两处整数 floor 会令真实价格影响略高（真实 cap 略小）。调用方如需与真实二分
+ * 结果逐 bit 一致，应以本结果作上界再用纯函数做一次本地微调。
+ *
+ * @param reserveIn 输入 token 的储备量（链上原始大整数）
+ * @param feePpm    池子费率（ppm，1_000_000 = 100%）
+ * @param threshold 价格影响阈值（定点 BigInt，scale 位小数，如 0.01 → 10^(scale-2)）
+ * @param scale     定点小数位数（与 parseDecimal 一致，默认 18）
+ */
+export function maxAmountInConstantProduct(params: {
+  reserveIn: bigint;
+  feePpm: bigint;
+  threshold: bigint;
+  scale?: bigint;
+}): bigint {
+  const { reserveIn, feePpm, threshold } = params;
+  const scale = params.scale ?? 18n;
+  if (reserveIn <= 0n) {
+    return 0n;
+  }
+  if (feePpm < 0n || feePpm >= PPM) {
+    return 0n;
+  }
+  if (threshold <= 0n) {
+    return 0n;
+  }
+  const one = 10n ** scale;
+  const f = PPM - feePpm; // = 1e6 - feePpm
+  // 阈值需超过「零输入时的价格影响」= feePpm / 1e6，否则任何金额都超标
+  const num = reserveIn * (threshold * PPM - feePpm * one);
+  if (num <= 0n) {
+    return 0n;
+  }
+  const den = f * (one - threshold);
+  if (den <= 0n) {
+    return 0n;
+  }
+  return num / den;
+}
+
 /**
  * 价格影响（slippage/price impact）十进制字符串。
  *

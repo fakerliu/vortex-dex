@@ -108,6 +108,9 @@ export interface QuoteResult {
   priceImpact: string;
   /** 报价来源，用于交叉验证与审计。 */
   source: 'onchain-getAmountOut' | 'quoter' | 'constant-product';
+  /** classic 池储备（链上原始大整数），随报价一并透传，供拆单解析式免二分复用。 */
+  reserve0?: string;
+  reserve1?: string;
   /** 单跳路径摘要。 */
   route: { pool: string; kind: PoolKind }[];
   /** 可选 gas 估算（部分 adapter 可在报价时一并得到，如 CL 的 Quoter 返回 gasEstimate）。 */

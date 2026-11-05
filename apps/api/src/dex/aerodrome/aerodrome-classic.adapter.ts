@@ -182,6 +182,8 @@ export class AerodromeClassicAdapter implements DexAdapter {
       priceImpact,
       source,
       route: [{ pool: poolAddress, kind: state.kind }],
+      reserve0: reserve0.toString(),
+      reserve1: reserve1.toString(),
     };
   }
 

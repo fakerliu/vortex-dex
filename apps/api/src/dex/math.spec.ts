@@ -6,6 +6,7 @@ import {
   formatFraction,
   formatPrice,
   getAmountOutConstantProduct,
+  maxAmountInConstantProduct,
   parseAmount,
   parseDecimal,
   sqrtPriceX96ToMidPrice,
@@ -247,6 +248,82 @@ describe('dex/math 纯函数（金额精度）', () => {
 
     it('空数组返回 0', () => {
       expect(combinePriceImpacts([])).toBe('0');
+    });
+  });
+
+  // ---------- maxAmountInConstantProduct ----------
+  describe('maxAmountInConstantProduct', () => {
+    const ONE = 10n ** 18n;
+    const PPM = 1_000_000n;
+
+    // 精确不等式：PI = (reserveIn*feePpm + F*x) / (reserveIn*PPM + F*x) ≤ thr（F=PPM-feePpm）
+    function exactImpactLe(
+      reserveIn: bigint,
+      feePpm: bigint,
+      x: bigint,
+      thr: bigint,
+    ): boolean {
+      const f = PPM - feePpm;
+      const n = reserveIn * feePpm + f * x;
+      const d = reserveIn * PPM + f * x;
+      return n * ONE <= thr * d;
+    }
+
+    it('反解出的 cap 精确满足不等式：cap 可行、cap+1 超限', () => {
+      const cases = [
+        { reserveIn: 1_000_000n, feePpm: 3000n, thr: 10n ** 16n },
+        { reserveIn: 1_000_000_000n, feePpm: 500n, thr: 5n * 10n ** 15n },
+        { reserveIn: 123_456_789n, feePpm: 3000n, thr: 2n * 10n ** 16n },
+        { reserveIn: 10n ** 18n, feePpm: 3000n, thr: 10n ** 16n },
+        { reserveIn: 5n * 10n ** 21n, feePpm: 3000n, thr: 10n ** 16n },
+      ];
+      for (const c of cases) {
+        const cap = maxAmountInConstantProduct({
+          reserveIn: c.reserveIn,
+          feePpm: c.feePpm,
+          threshold: c.thr,
+        });
+        expect(cap).toBeGreaterThan(0n);
+        expect(exactImpactLe(c.reserveIn, c.feePpm, cap, c.thr)).toBe(true);
+        expect(exactImpactLe(c.reserveIn, c.feePpm, cap + 1n, c.thr)).toBe(false);
+      }
+    });
+
+    it('阈值 ≤ 费率时任何金额都超标 → 返回 0', () => {
+      // fee 1%（10000 ppm）== 阈值 1%（0.01）
+      expect(
+        maxAmountInConstantProduct({
+          reserveIn: 1_000_000n,
+          feePpm: 10_000n,
+          threshold: 10n ** 16n,
+        }),
+      ).toBe(0n);
+      // fee 3%（30000 ppm）> 阈值 1%
+      expect(
+        maxAmountInConstantProduct({
+          reserveIn: 1_000_000n,
+          feePpm: 30_000n,
+          threshold: 10n ** 16n,
+        }),
+      ).toBe(0n);
+      // 阈值为 0
+      expect(
+        maxAmountInConstantProduct({
+          reserveIn: 1_000_000n,
+          feePpm: 3000n,
+          threshold: 0n,
+        }),
+      ).toBe(0n);
+    });
+
+    it('reserveIn ≤ 0 返回 0', () => {
+      expect(
+        maxAmountInConstantProduct({
+          reserveIn: 0n,
+          feePpm: 3000n,
+          threshold: 10n ** 16n,
+        }),
+      ).toBe(0n);
     });
   });
 

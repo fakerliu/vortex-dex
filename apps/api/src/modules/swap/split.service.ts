@@ -21,7 +21,12 @@ import {
   UNISWAP_V3_PROTOCOL_TYPE,
 } from '../../dex/uniswap-v3/constants';
 import type { QuoteResult } from '../../dex/types';
-import { parseDecimal } from '../../dex/math';
+import {
+  computePriceImpact,
+  getAmountOutConstantProduct,
+  maxAmountInConstantProduct,
+  parseDecimal,
+} from '../../dex/math';
 import { buildApproveCalldata } from '../../dex/calldata';
 import { formatUnits } from '../../common/utils/units';
 import { ErrorCodes } from '../../common/constants/error-codes';
@@ -588,6 +593,28 @@ export class SplitService {
     if (parseDecimal(fullQuoteImpact, SCALE) <= thr) {
       return upperBound;
     }
+
+    // 新增：classic-volatile 池解析式免二分（储备已随全量报价透传，零额外 RPC）。
+    // stable / CL 池无可解析式，仍走下方 RPC 二分。
+    if (
+      candidate.protocolType === AERODROME_PROTOCOL_TYPE_CLASSIC &&
+      candidate.pool.kind === 'classic-volatile' &&
+      candidate.quote.reserve0 !== undefined &&
+      candidate.quote.reserve1 !== undefined
+    ) {
+      const cap = this.volatileAnalyticCap(
+        candidate,
+        tokenIn,
+        tokenOut,
+        thr,
+        upperBound,
+      );
+      if (cap !== null) {
+        return cap;
+      }
+      // 方向解析异常等极少数情况：回退到下方 RPC 二分
+    }
+
     let lo = 0n;
     let hi = upperBound;
     let best = 0n;
@@ -627,6 +654,91 @@ export class SplitService {
       }
     }
     return best;
+  }
+
+  /**
+   * classic-volatile 池解析式求 cap：用恒定乘积解析式反解「不超阈值最大 amountIn」，
+   * 再以纯函数（getAmountOutConstantProduct + computePriceImpact，与 adapter 完全同款）
+   * 做一次本地微调，对齐其整数 floor，结果与 RPC 二分逐 bit 一致。全程零 RPC。
+   *
+   * 返回 null 表示方向解析异常，需由调用方回退到 RPC 二分。
+   */
+  private volatileAnalyticCap(
+    candidate: PoolQuoteCandidate,
+    tokenIn: string,
+    tokenOut: string,
+    thr: bigint,
+    upperBound: bigint,
+  ): bigint | null {
+    const feePpm = BigInt(candidate.pool.fee);
+    const reserve0 = BigInt(candidate.quote.reserve0!);
+    const reserve1 = BigInt(candidate.quote.reserve1!);
+
+    let reserveIn: bigint;
+    let reserveOut: bigint;
+    if (tokenIn === candidate.pool.token0 && tokenOut === candidate.pool.token1) {
+      reserveIn = reserve0;
+      reserveOut = reserve1;
+    } else if (tokenIn === candidate.pool.token1 && tokenOut === candidate.pool.token0) {
+      reserveIn = reserve1;
+      reserveOut = reserve0;
+    } else {
+      return null;
+    }
+
+    // 解析式上界（无 floor 精确模型），再 clamp 到 upperBound
+    let hi = maxAmountInConstantProduct({
+      reserveIn,
+      feePpm,
+      threshold: thr,
+      scale: SCALE,
+    });
+    if (hi > upperBound) {
+      hi = upperBound;
+    }
+    if (hi <= 0n) {
+      return 0n;
+    }
+
+    // 本地纯函数二分（零 RPC），精确对齐 adapter 的恒定乘积 + computePriceImpact
+    let lo = 0n;
+    let best = 0n;
+    while (lo <= hi) {
+      const mid = (lo + hi) / 2n;
+      if (mid === 0n) {
+        lo = 1n;
+        continue;
+      }
+      if (this.volatileImpact(reserveIn, reserveOut, feePpm, mid) <= thr) {
+        best = mid;
+        lo = mid + 1n;
+      } else {
+        hi = mid - 1n;
+      }
+    }
+    return best;
+  }
+
+  /** classic-volatile 池本地价格影响（定点 BigInt），复用 adapter 同款纯函数。 */
+  private volatileImpact(
+    reserveIn: bigint,
+    reserveOut: bigint,
+    feePpm: bigint,
+    amountIn: bigint,
+  ): bigint {
+    const amountOut = getAmountOutConstantProduct({
+      reserveIn,
+      reserveOut,
+      amountIn,
+      feePpm,
+    });
+    const priceImpact = computePriceImpact({
+      amountIn,
+      amountOut,
+      midNum: reserveOut,
+      midDen: reserveIn,
+    });
+    return parseDecimal(priceImpact, SCALE);
   }
 
   /** 拆分后整体价格影响：按各子单 amountIn 加权平均（纯 BigInt 定点）。 */
