@@ -6,7 +6,6 @@ import {
   Param,
   Post,
   Put,
-  Query,
 } from '@nestjs/common';
 import { PreferencesService } from './preferences.service';
 import type {
@@ -47,17 +46,17 @@ export class PreferencesController {
     return this.preferencesService.addFavorite(address, fav);
   }
 
-  // DELETE /api/v1/preferences/:address/favorites/:tokenAddress?chainId=
-  @Delete(':address/favorites/:tokenAddress')
+  // DELETE /api/v1/preferences/:address/favorites/:chainId/:tokenAddress
+  @Delete(':address/favorites/:chainId/:tokenAddress')
   removeFavorite(
     @Param('address') address: string,
+    @Param('chainId') chainId: string,
     @Param('tokenAddress') tokenAddress: string,
-    @Query('chainId') chainId: string,
   ): Promise<UserPreferenceDto> {
     return this.preferencesService.removeFavorite(
       address,
-      tokenAddress,
       Number(chainId),
+      tokenAddress,
     );
   }
 }

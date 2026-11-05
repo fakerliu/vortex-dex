@@ -142,7 +142,7 @@ describe('PreferencesService', () => {
       }),
     );
 
-    const res = await service.removeFavorite(ADDR, ADDR_UPPER, 8453);
+    const res = await service.removeFavorite(ADDR, 8453, ADDR_UPPER);
 
     const written = JSON.parse(upsert.mock.calls[0][0].update.favorite_tokens);
     expect(written).toEqual([{ chainId: 8453, address: OTHER, symbol: 'USDC' }]);
@@ -190,7 +190,7 @@ describe('PreferencesService', () => {
       }),
     );
 
-    const res = await service.removeFavorite(ADDR, ADDR, 8453);
+    const res = await service.removeFavorite(ADDR, 8453, ADDR);
 
     const written = JSON.parse(upsert.mock.calls[0][0].update.favorite_tokens);
     expect(written).toEqual([{ chainId: 84532, address: ADDR, symbol: 'WETH' }]);

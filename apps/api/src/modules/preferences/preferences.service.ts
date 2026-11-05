@@ -108,10 +108,11 @@ export class PreferencesService {
    */
   async removeFavorite(
     userAddress: string,
-    tokenAddress: string,
     chainId: number,
+    tokenAddress: string,
   ): Promise<UserPreferenceDto> {
-    this.assertChainId(chainId);
+    const targetChainId = Number(chainId);
+    this.assertChainId(targetChainId);
     const addr = normalizeAddress(userAddress);
     const target = normalizeAddress(tokenAddress);
     const existing = await this.prisma.userPreference.findUnique({
@@ -120,7 +121,7 @@ export class PreferencesService {
     const tokens = this.parseFavoriteTokens(existing?.favorite_tokens);
 
     const next = tokens.filter(
-      (t) => !(t.chainId === chainId && t.address === target),
+      (t) => !(t.chainId === targetChainId && t.address === target),
     );
     const serialized = JSON.stringify(next);
     const row = await this.prisma.userPreference.upsert({
