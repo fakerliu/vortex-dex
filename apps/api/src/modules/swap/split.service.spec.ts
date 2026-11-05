@@ -634,4 +634,25 @@ describe('SplitService', () => {
     expect(result.splits[0].amountIn).toBe('60');
     expect(result.splits[1].amountIn).toBe('40');
   });
+
+  it('快速路径：全额报价 priceImpact 已 ≤ 阈值 → 直接返回 upperBound，不再二次报价', async () => {
+    // 候选池在 discoverCandidates 阶段的全额报价 priceImpact=0.005 ≤ 阈值 0.01
+    const candidate = makeCandidate(poolA, '90', '0.005');
+    classic.getQuote.mockResolvedValue(makeQuote(poolA, '100', 4000n));
+
+    const cap = await (service as unknown as {
+      binarySearchCap: (
+        chainId: number,
+        tokenIn: string,
+        tokenOut: string,
+        candidate: PoolQuoteCandidate,
+        threshold: string,
+        upperBound: bigint,
+      ) => Promise<bigint>;
+    }).binarySearchCap(8453, tokenIn, tokenOut, candidate, '0.01', 100n);
+
+    expect(cap).toBe(100n);
+    // 快速路径应直接返回，不再触发任何 RPC 探测报价
+    expect(classic.getQuote).not.toHaveBeenCalled();
+  });
 });

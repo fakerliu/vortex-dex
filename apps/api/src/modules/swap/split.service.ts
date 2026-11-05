@@ -49,8 +49,8 @@ import {
 const SCALE = 18n;
 const DEFAULT_SLIPPAGE_BPS = 50;
 const MAX_SLIPPAGE_BPS = 10_000;
-/** 二分逼近最大迭代次数（2^100 覆盖任意合理链上金额）。 */
-const MAX_BINARY_ITERATIONS = 100;
+/** 二分逼近最大迭代次数（2^48 ≈ 2.8e14，覆盖绝大多数 token 金额的 wei 数量级）。 */
+const MAX_BINARY_ITERATIONS = 48;
 
 /** 分配结果（供逐子单调 prepare）。 */
 interface Allocation {
@@ -540,7 +540,7 @@ export class SplitService {
         tokenOut,
         candidate,
         threshold,
-        totalAmountIn,
+        remaining,
       );
       if (cap <= 0n) {
         continue;
@@ -581,6 +581,13 @@ export class SplitService {
     upperBound: bigint,
   ): Promise<bigint> {
     const thr = parseDecimal(threshold, SCALE);
+    // 快速路径：候选池在 discoverCandidates 阶段已用母单全额（totalAmountIn）报过价。
+    // 价格影响随 amountIn 单调不减，若全额价格影响已 ≤ 阈值，则该池必可承接任意
+    // ≤ 全额的上界（即当前 remaining），无需二分探测，直接返回上界（省去几十次 RPC）。
+    const fullQuoteImpact = candidate.quote.priceImpact;
+    if (parseDecimal(fullQuoteImpact, SCALE) <= thr) {
+      return upperBound;
+    }
     let lo = 0n;
     let hi = upperBound;
     let best = 0n;
