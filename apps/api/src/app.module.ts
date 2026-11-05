@@ -19,6 +19,7 @@ import { SecurityModule } from './modules/security/security.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
 import { PreferencesModule } from './modules/preferences/preferences.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { LimitOrderModule } from './modules/limit-order/limit-order.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     AlertsModule,
     PreferencesModule,
     NotificationsModule,
+    LimitOrderModule,
   ],
 })
 export class AppModule {}

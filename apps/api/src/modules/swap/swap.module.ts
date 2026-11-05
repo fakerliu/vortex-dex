@@ -19,5 +19,6 @@ import { SwapService } from './swap.service';
   imports: [DexModule, AnalyticsModule, MarketModule],
   controllers: [SwapController, SplitController],
   providers: [SwapService, SplitService],
+  exports: [SwapService],
 })
 export class SwapModule {}

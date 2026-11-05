@@ -553,3 +553,48 @@ model Notification {
   @@index([user_address, created_at])
   @@map("notifications")
 }
+
+// ---------- N. 限价单（V1.4 Limit Order，Phase 1 链下 keeper） ----------
+// 用户预签成交交易 + keeper 盯价广播（零执行私钥）。详见 docs/v1.4-limit-order-architecture.md。
+model LimitOrder {
+  id             String   @id @default(cuid())
+  user_address   String // 小写规范化（下单人 / maker）
+  chain_id       Int // 8453 / 84532
+
+  direction      String @default("buy") // "buy"（V1.4 先做）| "sell"（镜像预留）
+
+  token_in       String // 小写规范化（用户付出的币）
+  token_out      String // 小写规范化（用户买入的币）
+
+  amount_in      Decimal @db.Decimal(78, 0) // 固定输入（exactInput 语义，链上原始大整数）
+  min_amount_out Decimal @db.Decimal(78, 0) // 最少输出（限价，权威触发/成交值）
+
+  limit_price    Decimal @db.Decimal(78, 18) // 目标价比率（tokenIn 每 tokenOut，仅展示/粗筛）
+  slippage_bps   Int     @default(0)
+
+  status         String   @default("pending") // pending / triggered / filled / cancelled / expired / failed
+  expires_at     DateTime? // 过期时间（可空=永不过期，但预签 deadline 仍必须有上界）
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+  triggered_at   DateTime? // 价格首次满足（keeper 抢占）时间
+  filled_at      DateTime? // 成交（回执成功）时间
+
+  swap_id        String? // 关联 swaps.id（成交后回填）
+  tx_hash        String? // 成交交易哈希（小写；与 swaps.tx_hash 冗余，便于订单侧直查）
+  failure_reason String? // 失败原因（revert / nonce 失效 / 余额不足 / allowance 不足）
+
+  signed_swap_tx     String? // 预签的 swap 交易 raw hex（from=user, recipient=user）
+  signed_approval_tx String? // 预签的 approve 交易 raw hex（下单时 allowance 不足才需要，可空）
+
+  // ---- Phase 2 预留（本次不启用，仅占位） ----
+  settlement_contract String? // Phase 2：结算合约地址（Phase 1 恒 null）
+  order_nonce         Int? // Phase 2：链上订单 nonce（Phase 1 恒 null）
+  eip712_signature    String? // Phase 2：EIP-712 订单签名（替代 signed_swap_tx）
+
+  fill_kind       String @default("fill_or_kill") // fill_or_kill（V1.4）；partial 预留
+
+  @@index([user_address, created_at])
+  @@index([status, expires_at])
+  @@index([chain_id, token_in, token_out, status])
+  @@map("limit_orders")
+}

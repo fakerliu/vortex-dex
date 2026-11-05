@@ -5,6 +5,7 @@ import {
   type Chain,
   type PublicClient,
 } from 'viem';
+import { sendRawTransaction } from 'viem/actions';
 import { base, baseSepolia } from 'viem/chains';
 import {
   BASE_MAINNET_CHAIN_ID,
@@ -41,6 +42,18 @@ export class ChainRpcService implements OnModuleDestroy {
       this.clients.set(chainId, client);
     }
     return client;
+  }
+
+  /**
+   * 广播一笔已签名交易（eth_sendRawTransaction），返回交易哈希。
+   * 供限价单 keeper 广播用户预签交易：无需任何私钥，Gas 由 from=user 承担。
+   */
+  async sendRawTransaction(chainId: number, rawHex: string): Promise<string> {
+    const client = this.getClient(chainId);
+    const hash = await sendRawTransaction(client, {
+      serializedTransaction: rawHex as `0x${string}`,
+    });
+    return hash;
   }
 
   getRpcUrl(chainId: number): string {
