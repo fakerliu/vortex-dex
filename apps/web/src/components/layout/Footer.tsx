@@ -26,7 +26,7 @@ export function Footer() {
           </Link>
         </div>
         <p className="text-xs text-gray-500">
-          © {new Date().getFullYear()} VORTEX DEX. Experimental interface.
+          © 2026 VORTEX DEX. Experimental interface.
         </p>
       </PageContainer>
     </footer>
