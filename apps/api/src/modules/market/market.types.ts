@@ -85,5 +85,6 @@ export interface RankingResult {
   chainId: number;
   sortBy: 'price' | 'volume' | 'price_change';
   limit: number;
+  total: number; // 过滤 + 排序后的总条数（分页用）
   items: RankingItem[];
 }

@@ -22,6 +22,7 @@ import {
 } from '../../chain/token-catalog';
 import { isValidAddress, normalizeAddress } from '../../chain/address';
 import { DataAuthenticity } from '../../common/constants/data-authenticity';
+import { PriceProviderService } from './price-provider.service';
 import type {
   MarketPriceDto,
   MarketSnapshotDto,
@@ -84,6 +85,7 @@ export class MarketService {
     private readonly dex: DexPoolService,
     private readonly rpc: ChainRpcService,
     private readonly alerts: AlertsService,
+    private readonly priceProvider: PriceProviderService,
   ) {}
 
   /** 单 token 价格（token→USDC 或 token→WETH→USDC 链上推导）。 */
@@ -166,9 +168,23 @@ export class MarketService {
       }
     }
 
-    // 链上无池 / 报价失败 → 优雅降级
+    // 链上无池 / 报价失败 → 降级 CoinGecko 第三方兜底（失败静默，绝不抛 500）。
+    const providerPrice = await this.priceProvider.getUsdPrice(addr);
+    if (providerPrice !== null) {
+      return {
+        chainId: resolvedChainId,
+        tokenAddress: addr,
+        priceUsd: providerPrice,
+        quoteToken: null,
+        authenticity: DataAuthenticity.REAL_PROVIDER,
+        source: 'coingecko',
+        blockNumber: null,
+      };
+    }
+
+    // 链上无池且 CoinGecko 未收录 → 优雅降级
     this.logger.warn(
-      `Market 价格不可用（chain=${resolvedChainId} token=${addr}），无可用链上池`,
+      `Market 价格不可用（chain=${resolvedChainId} token=${addr}），链上无池且 CoinGecko 未收录`,
     );
     return {
       chainId: resolvedChainId,

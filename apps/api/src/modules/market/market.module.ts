@@ -4,6 +4,7 @@ import { AlertsModule } from '../alerts/alerts.module';
 import { MarketController } from './market.controller';
 import { MarketRankingService } from './market-ranking.service';
 import { MarketService } from './market.service';
+import { PriceProviderService } from './price-provider.service';
 
 /**
  * Market 模块（Sprint 2 Market Data Provider + Snapshot 落库 + Sprint 3 榜单）。
@@ -20,7 +21,7 @@ import { MarketService } from './market.service';
 @Module({
   imports: [DexModule, AlertsModule],
   controllers: [MarketController],
-  providers: [MarketService, MarketRankingService],
+  providers: [MarketService, MarketRankingService, PriceProviderService],
   exports: [MarketService],
 })
 export class MarketModule {}

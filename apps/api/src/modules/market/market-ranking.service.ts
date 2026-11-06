@@ -78,13 +78,27 @@ export class MarketRankingService {
     chainId: number | undefined,
     sortBy?: RankingSortBy,
     limit?: number,
+    q?: string,
+    page?: number,
   ): Promise<RankingResult> {
     const resolvedChainId = this.resolveChainId(chainId);
     const resolvedLimit = this.normalizeLimit(limit);
     const effectiveSort = this.resolveSort(sortBy);
+    const resolvedPage = this.normalizePage(page);
+    const query = this.normalizeQuery(q);
+
+    // 模糊搜索：symbol / name / address 大小写不敏感（Prisma 5.22 支持 mode）。
+    const tokenWhere: Prisma.TokenWhereInput = { chain_id: resolvedChainId };
+    if (query !== undefined) {
+      tokenWhere.OR = [
+        { symbol: { contains: query, mode: 'insensitive' } },
+        { name: { contains: query, mode: 'insensitive' } },
+        { address: { contains: query, mode: 'insensitive' } },
+      ];
+    }
 
     const [tokens, snapshots, volumeMap] = await Promise.all([
-      this.prisma.token.findMany({ where: { chain_id: resolvedChainId } }),
+      this.prisma.token.findMany({ where: tokenWhere }),
       this.prisma.marketSnapshot.findMany({
         where: { chain_id: resolvedChainId },
         orderBy: [{ token_address: 'asc' }, { created_at: 'desc' }],
@@ -106,11 +120,24 @@ export class MarketRankingService {
       }
     }
 
-    // 基集：Token 注册表 ∪ 快照表，确保无快照 token 也返回。
+    // 基集：Token 注册表（已按 q 过滤）∪ 快照表，确保无快照 token 也返回。
     const addresses = new Set<string>([
       ...tokenByAddr.keys(),
       ...latestByAddr.keys(),
     ]);
+
+    // 快照表中可能存在「无 Token 注册记录」的地址，此时仅能按地址匹配 q。
+    if (query !== undefined) {
+      const needle = query.toLowerCase();
+      for (const address of addresses) {
+        if (tokenByAddr.has(address)) {
+          continue; // 已在 Prisma 层按 symbol/name/address 过滤
+        }
+        if (!address.includes(needle)) {
+          addresses.delete(address);
+        }
+      }
+    }
 
     const items: RankingItem[] = [];
     for (const address of addresses) {
@@ -128,11 +155,13 @@ export class MarketRankingService {
 
     this.sortItems(items, effectiveSort);
 
+    const skip = (resolvedPage - 1) * resolvedLimit;
     return {
       chainId: resolvedChainId,
       sortBy: effectiveSort,
       limit: resolvedLimit,
-      items: items.slice(0, resolvedLimit),
+      total: items.length,
+      items: items.slice(skip, skip + resolvedLimit),
     };
   }
 
@@ -299,6 +328,25 @@ export class MarketRankingService {
       throw new BadRequestException('limit 必须是 >= 1 的整数');
     }
     return Math.min(limit, MAX_LIMIT);
+  }
+
+  private normalizePage(page?: number): number {
+    if (page === undefined) {
+      return 1;
+    }
+    if (!Number.isInteger(page) || page < 1) {
+      throw new BadRequestException('page 必须是 >= 1 的整数');
+    }
+    return page;
+  }
+
+  /** 搜索词：trim 后空串视作未传，避免空 contains 匹配全部。 */
+  private normalizeQuery(q?: string): string | undefined {
+    if (q === undefined) {
+      return undefined;
+    }
+    const trimmed = q.trim();
+    return trimmed.length === 0 ? undefined : trimmed;
   }
 
   private errMsg(err: unknown): string {

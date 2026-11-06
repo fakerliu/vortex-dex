@@ -49,17 +49,21 @@ export class MarketController {
     );
   }
 
-  // GET /api/v1/market/ranking?chainId=&sortBy=&limit=
+  // GET /api/v1/market/ranking?chainId=&sortBy=&limit=&q=&page=
   @Get('ranking')
   ranking(
     @Query('chainId') chainId?: string,
     @Query('sortBy') sortBy?: string,
     @Query('limit') limit?: string,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
   ): Promise<RankingResult> {
     return this.rankingService.getRanking(
       this.parseOptionalInt(chainId, 'chainId'),
       this.parseSortBy(sortBy),
       this.parseOptionalInt(limit, 'limit'),
+      q,
+      this.parseOptionalInt(page, 'page'),
     );
   }
 
