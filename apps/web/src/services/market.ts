@@ -125,16 +125,28 @@ export async function fetchMarketSnapshot(
 
 /**
  * 代币榜单（Explore 数据源）。
- * GET ${NEXT_PUBLIC_API_BASE_URL}/market/ranking?chainId=&sortBy=&limit=。
+ * GET ${NEXT_PUBLIC_API_BASE_URL}/market/ranking?chainId=&sortBy=&limit=&q=&page=。
  * 后端已按 sortBy 排好序并 join Token 表 + 聚合 Swap 成交量，
  * 每项含 priceUsd + volumeUsd 及其各自真实度标记。
+ *
+ * 注意：后端 controller 只接受 volume / price_change 作为 sortBy 查询参数，
+ * price 为默认（未传即 price 降序）。「price -> 不传 sortBy」的归一化由上层 hook 完成，
+ * 这里原样透传 sortBy。
  */
 export async function fetchMarketRanking(
   chainId: number,
   sortBy?: MarketRankingSortBy,
   limit?: number,
+  q?: string,
+  page?: number,
 ): Promise<MarketRankingResult> {
-  return get<MarketRankingResult>("/market/ranking", { chainId, sortBy, limit });
+  return get<MarketRankingResult>("/market/ranking", {
+    chainId,
+    sortBy,
+    limit,
+    q,
+    page,
+  });
 }
 
 /**

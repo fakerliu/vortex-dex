@@ -53,12 +53,15 @@ export interface MarketSnapshotResult {
 }
 
 /**
- * 榜单排序方式（GET /api/v1/market/ranking 的 sortBy 查询参数）。
- * - 不传：按 priceUsd 降序（价格榜单）
+ * 榜单排序方式（GET /api/v1/market/ranking 的 sortBy 参数，以及响应中的实际 sortBy）。
+ * - price：按 priceUsd 降序（价格榜单，后端默认，未传 sortBy 即 price）
  * - volume：按 volumeUsd 降序（成交量榜单）
- * - price_change：需历史快照，当前后端回退为 price 降序
+ * - price_change：按 priceChange 降序（涨跌幅榜单，基于历史快照）
+ *
+ * 注意：后端 controller 只接受 volume / price_change 作为查询参数，price 为默认值
+ * （传 sortBy=price 会触发 400）。前端选中 price 时由 hook 归一化为「不传 sortBy」。
  */
-export type MarketRankingSortBy = "volume" | "price_change";
+export type MarketRankingSortBy = "price" | "volume" | "price_change";
 
 /**
  * 榜单单项（GET /api/v1/market/ranking 的 items[]）。
@@ -78,6 +81,8 @@ export interface MarketRankingItem {
   risk: boolean;
   /** 十进制字符串，来自 market_snapshots。 */
   priceUsd: string | null;
+  /** 涨跌幅（十进制字符串，可正可负），缺历史快照时为 null。 */
+  priceChange: string | null;
   /** 价格基准 token 地址（小写）。 */
   quoteToken: string | null;
   /** 24h 成交量（USD 十进制字符串），内部从 Swap 表聚合估算。 */
@@ -93,8 +98,10 @@ export interface MarketRankingItem {
 /** 榜单结果（GET /api/v1/market/ranking）。sortBy 为实际生效的排序方式。 */
 export interface MarketRankingResult {
   chainId: number;
-  sortBy: "price" | "volume";
+  sortBy: MarketRankingSortBy;
   limit: number;
+  /** 匹配条件的代币总数（用于分页，后端新增，含未落在当前页的币）。 */
+  total: number;
   items: MarketRankingItem[];
 }
 
