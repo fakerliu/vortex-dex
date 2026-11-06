@@ -19,6 +19,21 @@ export const REORG_SAFE_DEPTH = 12;
 /** 单次 getLogs 的最大区块跨度（平衡 RPC 限流与吞吐）。 */
 export const SCAN_CHUNK_BLOCKS = 200;
 
+/**
+ * 解析单次 getLogs 的实际区块跨度。
+ * 不同 RPC 对 eth_getLogs 的单次区块范围限制不同：
+ * - 公共 RPC（mainnet.base.org / publicnode）：约 200 块（默认值即可）。
+ * - Alchemy 免费 tier：仅 10 块（超过返回 -32600，要求 block range ≤ 10）。
+ * 故允许通过 INDEXER_CHUNK_BLOCKS 覆盖，适配付费/免费档不同限流。
+ */
+export function resolveChunkBlocks(): number {
+  const raw = Number(process.env.INDEXER_CHUNK_BLOCKS);
+  if (Number.isInteger(raw) && raw >= 1 && raw <= 10000) {
+    return raw;
+  }
+  return SCAN_CHUNK_BLOCKS;
+}
+
 /** 后台自动扫描循环间隔（毫秒）。 */
 export const SCAN_INTERVAL_MS = 12_000;
 

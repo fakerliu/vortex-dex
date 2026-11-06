@@ -27,7 +27,7 @@ import {
   ALL_INDEXED_TOPICS,
   INDEXER_CHAIN_ID,
   REORG_SAFE_DEPTH,
-  SCAN_CHUNK_BLOCKS,
+  resolveChunkBlocks,
   SCAN_INTERVAL_MS,
   WRITE_BATCH_SIZE,
 } from './indexer.constants';
@@ -183,8 +183,9 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       const events: NormalizedPoolEvent[] = [];
       let fetchedLogs = 0;
 
-      for (let chunkFrom = fromBlock; chunkFrom <= toBlock; chunkFrom += SCAN_CHUNK_BLOCKS) {
-        const chunkTo = Math.min(toBlock, chunkFrom + SCAN_CHUNK_BLOCKS - 1);
+      const chunkBlocks = resolveChunkBlocks();
+      for (let chunkFrom = fromBlock; chunkFrom <= toBlock; chunkFrom += chunkBlocks) {
+        const chunkTo = Math.min(toBlock, chunkFrom + chunkBlocks - 1);
         const logs = await this.rpc.getLogs({
           fromBlock: chunkFrom,
           toBlock: chunkTo,
