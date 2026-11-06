@@ -24,10 +24,11 @@ import {
   aerodromeClPoolEventAbi,
 } from '../dex/aerodrome/abis';
 import {
-  ALL_INDEXED_TOPICS,
   INDEXER_CHAIN_ID,
+  LOG_ADDRESS_BATCH_SIZE,
   REORG_SAFE_DEPTH,
   resolveChunkBlocks,
+  resolveIndexedTopics,
   SCAN_INTERVAL_MS,
   WRITE_BATCH_SIZE,
 } from './indexer.constants';
@@ -178,25 +179,36 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       }
 
       // 2. 分块拉日志 + 解析 + 标准化
+      //    - 地址分批（每批 ≤ LOG_ADDRESS_BATCH_SIZE）：33k+ 池地址不能一次塞进单个
+      //      eth_getLogs（请求体超限 / RPC 拒绝），循环分批复用同一 topics。
+      //    - D7：INDEXER_INDEX_SWAP_ONLY=true 时 topics 仅保留 Swap 的 topic0。
       const addressList = pools.map((p) => p.address);
       const poolByAddress = new Map(pools.map((p) => [p.address, p]));
       const events: NormalizedPoolEvent[] = [];
       let fetchedLogs = 0;
 
+      const addressBatches: string[][] = [];
+      for (let i = 0; i < addressList.length; i += LOG_ADDRESS_BATCH_SIZE) {
+        addressBatches.push(addressList.slice(i, i + LOG_ADDRESS_BATCH_SIZE));
+      }
+
       const chunkBlocks = resolveChunkBlocks();
+      const topics = resolveIndexedTopics();
       for (let chunkFrom = fromBlock; chunkFrom <= toBlock; chunkFrom += chunkBlocks) {
         const chunkTo = Math.min(toBlock, chunkFrom + chunkBlocks - 1);
-        const logs = await this.rpc.getLogs({
-          fromBlock: chunkFrom,
-          toBlock: chunkTo,
-          addresses: addressList,
-          topics: ALL_INDEXED_TOPICS,
-        });
-        fetchedLogs += logs.length;
-        for (const log of logs) {
-          const ev = this.decodeLog(log, poolByAddress);
-          if (ev) {
-            events.push(ev);
+        for (const addresses of addressBatches) {
+          const logs = await this.rpc.getLogs({
+            fromBlock: chunkFrom,
+            toBlock: chunkTo,
+            addresses,
+            topics,
+          });
+          fetchedLogs += logs.length;
+          for (const log of logs) {
+            const ev = this.decodeLog(log, poolByAddress);
+            if (ev) {
+              events.push(ev);
+            }
           }
         }
       }

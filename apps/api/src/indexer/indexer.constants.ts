@@ -88,3 +88,33 @@ export const ALL_INDEXED_TOPICS: string[] = [
   ...Object.keys(CLASSIC_EVENT_TOPICS),
   ...Object.keys(CL_EVENT_TOPICS),
 ];
+
+/**
+ * 单次 getLogs 的地址批大小（避免 33k+ 池地址一次塞进单个 eth_getLogs 打爆 RPC）。
+ * 公共 RPC 对 address 数组长度与请求体大小都有限制，500 是实测较稳的档位。
+ */
+export const LOG_ADDRESS_BATCH_SIZE = 500;
+
+/**
+ * 是否只索引 Swap 事件（D7）。
+ * 为 true 时 getLogs 只拉 classic Swap / CL Swap 两个 topic0，
+ * 不再索引 Sync/Mint/Burn/Fees/Collect 等流动性事件。
+ */
+export function resolveIndexSwapOnly(): boolean {
+  return process.env.INDEXER_INDEX_SWAP_ONLY === 'true';
+}
+
+/** 解析当前应使用的 getLogs topics 并集（D7：可切换为仅 Swap）。 */
+export function resolveIndexedTopics(): string[] {
+  if (resolveIndexSwapOnly()) {
+    return [
+      ...Object.entries(CLASSIC_EVENT_TOPICS)
+        .filter(([, name]) => name === 'Swap')
+        .map(([t]) => t),
+      ...Object.entries(CL_EVENT_TOPICS)
+        .filter(([, name]) => name === 'Swap')
+        .map(([t]) => t),
+    ];
+  }
+  return ALL_INDEXED_TOPICS;
+}
