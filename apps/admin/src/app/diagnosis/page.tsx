@@ -43,7 +43,7 @@ export default function DiagnosisPage() {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <p className="mb-4 text-gray-400">请先完成管理员登录。</p>
+          <p className="mb-4 text-gray-500">请先完成管理员登录。</p>
           <a href="/" className="text-accent-400 hover:underline">
             返回登录页
           </a>
@@ -55,8 +55,8 @@ export default function DiagnosisPage() {
   const t = trace.data;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      <header className="sticky top-0 z-40 border-b border-gray-800 bg-gray-950/90 backdrop-blur">
+    <div className="min-h-screen bg-gray-100 text-gray-900">
+      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           <div className="flex items-center gap-3">
             <span className="text-lg font-bold">VORTEX</span>
@@ -64,7 +64,7 @@ export default function DiagnosisPage() {
               问题诊断
             </span>
           </div>
-          <a href="/dashboard" className="text-sm text-gray-500 hover:text-gray-300">
+          <a href="/dashboard" className="text-sm text-gray-500 hover:text-gray-700">
             返回仪表盘
           </a>
         </div>
@@ -74,9 +74,9 @@ export default function DiagnosisPage() {
         {/* 交易意图列表 */}
         <h2 className="mb-4 text-xl font-semibold">交易意图（intent_id）</h2>
         {intents.data?.intents && intents.data.intents.length > 0 ? (
-          <div className="mb-8 overflow-hidden rounded-xl border border-gray-800">
+          <div className="mb-8 overflow-hidden rounded-xl border border-gray-200">
             <table className="w-full text-sm">
-              <thead className="bg-gray-900 text-left text-gray-400">
+              <thead className="bg-white text-left text-gray-500">
                 <tr>
                   <th className="px-4 py-2">intent_id</th>
                   <th className="px-4 py-2">钱包</th>
@@ -88,7 +88,7 @@ export default function DiagnosisPage() {
               </thead>
               <tbody>
                 {intents.data.intents.map((it) => (
-                  <tr key={it.intent_id} className="border-t border-gray-800">
+                  <tr key={it.intent_id} className="border-t border-gray-200">
                     <td className="px-4 py-2 font-mono text-xs">{shortAddr(it.intent_id)}</td>
                     <td className="px-4 py-2 font-mono text-xs">
                       {shortAddr(it.wallet_address ?? "")}
@@ -124,9 +124,9 @@ export default function DiagnosisPage() {
         {/* 失败交易 */}
         <h2 className="mb-4 text-xl font-semibold">失败交易</h2>
         {failures.data?.failures && failures.data.failures.length > 0 ? (
-          <div className="mb-8 overflow-hidden rounded-xl border border-gray-800">
+          <div className="mb-8 overflow-hidden rounded-xl border border-gray-200">
             <table className="w-full text-sm">
-              <thead className="bg-gray-900 text-left text-gray-400">
+              <thead className="bg-white text-left text-gray-500">
                 <tr>
                   <th className="px-4 py-2">txHash</th>
                   <th className="px-4 py-2">交易对</th>
@@ -136,7 +136,7 @@ export default function DiagnosisPage() {
               </thead>
               <tbody>
                 {failures.data.failures.map((f) => (
-                  <tr key={f.swapId} className="border-t border-gray-800">
+                  <tr key={f.swapId} className="border-t border-gray-200">
                     <td className="px-4 py-2 font-mono text-xs">{shortAddr(f.txHash)}</td>
                     <td className="px-4 py-2 font-mono text-xs">
                       {shortAddr(f.tokenIn)} → {shortAddr(f.tokenOut)}
@@ -158,7 +158,7 @@ export default function DiagnosisPage() {
 
         {/* 追踪详情 */}
         {selectedIntent && (
-          <div className="rounded-xl border border-gray-800 p-4">
+          <div className="rounded-xl border border-gray-200 p-4">
             <h2 className="mb-4 text-xl font-semibold">链路追踪详情</h2>
             {trace.isLoading ? (
               <div className="text-gray-500">加载中...</div>
@@ -181,7 +181,7 @@ export default function DiagnosisPage() {
                   </div>
                 )}
                 {t.funnelProgress && (
-                  <div className="text-sm text-gray-400">
+                  <div className="text-sm text-gray-500">
                     漏斗进度：第 {t.funnelProgress.reachedStep}/{t.funnelProgress.totalSteps} 步
                     （{t.funnelProgress.reachedStepName}）
                   </div>
@@ -191,7 +191,7 @@ export default function DiagnosisPage() {
                     {t.steps.map((s) => (
                       <span
                         key={s.name}
-                        className="rounded bg-gray-800 px-2 py-1 text-xs text-gray-300"
+                        className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-500"
                       >
                         {s.step}. {s.name}
                       </span>
@@ -200,7 +200,7 @@ export default function DiagnosisPage() {
                 )}
                 {t.errors && t.errors.length > 0 && (
                   <div>
-                    <div className="mb-1 text-sm text-gray-400">错误事件</div>
+                    <div className="mb-1 text-sm text-gray-500">错误事件</div>
                     {t.errors.map((e, i) => (
                       <div key={i} className="text-xs text-gray-500">
                         [{e.errorType}] {e.errorCode}：{e.message}
@@ -223,6 +223,6 @@ function StatusBadge({ status }: { status: string }) {
       ? "bg-green-500/20 text-green-400"
       : status === "failed"
         ? "bg-danger/20 text-danger"
-        : "bg-gray-700 text-gray-300";
+        : "bg-gray-200 text-gray-500";
   return <span className={`rounded px-2 py-0.5 text-xs ${cls}`}>{status}</span>;
 }

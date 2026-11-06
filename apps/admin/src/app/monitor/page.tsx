@@ -39,7 +39,7 @@ export default function MonitorPage() {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <p className="mb-4 text-gray-400">请先完成管理员登录。</p>
+          <p className="mb-4 text-gray-500">请先完成管理员登录。</p>
           <a href="/" className="text-accent-400 hover:underline">
             返回登录页
           </a>
@@ -53,8 +53,8 @@ export default function MonitorPage() {
   const e = errors.data;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      <header className="sticky top-0 z-40 border-b border-gray-800 bg-gray-950/90 backdrop-blur">
+    <div className="min-h-screen bg-gray-100 text-gray-900">
+      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           <div className="flex items-center gap-3">
             <span className="text-lg font-bold">VORTEX</span>
@@ -63,7 +63,7 @@ export default function MonitorPage() {
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <a href="/dashboard" className="text-sm text-gray-500 hover:text-gray-300">
+            <a href="/dashboard" className="text-sm text-gray-500 hover:text-gray-700">
               返回仪表盘
             </a>
           </div>
@@ -93,11 +93,11 @@ export default function MonitorPage() {
         {s?.services ? (
           <div className="mb-8 space-y-4">
             {s.services.map((svc) => (
-              <div key={svc.service} className="rounded-xl border border-gray-800 p-4">
+              <div key={svc.service} className="rounded-xl border border-gray-200 p-4">
                 <div className="mb-2 font-mono text-accent-400">{svc.service}</div>
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                   {svc.metrics.map((m) => (
-                    <div key={m.name} className="rounded-lg bg-gray-900 p-3">
+                    <div key={m.name} className="rounded-lg bg-white p-3">
                       <div className="text-xs text-gray-500">
                         {m.name}
                         {m.unit ? ` (${m.unit})` : ""}
@@ -123,9 +123,9 @@ export default function MonitorPage() {
         {/* 错误事件 */}
         <h2 className="mb-4 text-xl font-semibold">错误事件（最近 24h）</h2>
         {e?.topErrors && e.topErrors.length > 0 ? (
-          <div className="overflow-hidden rounded-xl border border-gray-800">
+          <div className="overflow-hidden rounded-xl border border-gray-200">
             <table className="w-full text-sm">
-              <thead className="bg-gray-900 text-left text-gray-400">
+              <thead className="bg-white text-left text-gray-500">
                 <tr>
                   <th className="px-4 py-2">错误码</th>
                   <th className="px-4 py-2">类型</th>
@@ -134,7 +134,7 @@ export default function MonitorPage() {
               </thead>
               <tbody>
                 {e.topErrors.map((err) => (
-                  <tr key={err.errorCode} className="border-t border-gray-800">
+                  <tr key={err.errorCode} className="border-t border-gray-200">
                     <td className="px-4 py-2 font-mono">{err.errorCode}</td>
                     <td className="px-4 py-2">
                       <span
@@ -171,7 +171,7 @@ function StatusCard({
   ok: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+    <div className="rounded-xl border border-gray-200 bg-white p-4">
       <div className="mb-1 text-xs text-gray-500">{label}</div>
       <div className="flex items-center gap-2">
         <span

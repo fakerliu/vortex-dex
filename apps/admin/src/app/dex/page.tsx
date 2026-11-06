@@ -57,7 +57,7 @@ export default function DexPage() {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <p className="mb-4 text-gray-400">请先完成管理员登录。</p>
+          <p className="mb-4 text-gray-500">请先完成管理员登录。</p>
           <a href="/" className="text-accent-400 hover:underline">
             返回登录页
           </a>
@@ -71,8 +71,8 @@ export default function DexPage() {
   const pl = pools.data;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      <header className="sticky top-0 z-40 border-b border-gray-800 bg-gray-950/90 backdrop-blur">
+    <div className="min-h-screen bg-gray-100 text-gray-900">
+      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           <div className="flex items-center gap-3">
             <span className="text-lg font-bold">VORTEX</span>
@@ -81,7 +81,7 @@ export default function DexPage() {
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <a href="/dashboard" className="text-sm text-gray-500 hover:text-gray-300">
+            <a href="/dashboard" className="text-sm text-gray-500 hover:text-gray-700">
               返回仪表盘
             </a>
             <select
@@ -89,7 +89,7 @@ export default function DexPage() {
               onChange={(e) =>
                 setChainId(e.target.value ? Number(e.target.value) : undefined)
               }
-              className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm"
             >
               <option value="">全部链</option>
               <option value="8453">Base Mainnet (8453)</option>
@@ -124,9 +124,9 @@ export default function DexPage() {
         {/* 协议分析 */}
         <h2 className="mb-4 text-xl font-semibold">协议分析</h2>
         {p?.protocols ? (
-          <div className="mb-8 overflow-hidden rounded-xl border border-gray-800">
+          <div className="mb-8 overflow-hidden rounded-xl border border-gray-200">
             <table className="w-full text-sm">
-              <thead className="bg-gray-900 text-left text-gray-400">
+              <thead className="bg-white text-left text-gray-500">
                 <tr>
                   <th className="px-4 py-2">协议</th>
                   <th className="px-4 py-2">候选数</th>
@@ -138,7 +138,7 @@ export default function DexPage() {
               </thead>
               <tbody>
                 {p.protocols.map((proto) => (
-                  <tr key={proto.protocol} className="border-t border-gray-800">
+                  <tr key={proto.protocol} className="border-t border-gray-200">
                     <td className="px-4 py-2 font-mono text-accent-400">
                       {proto.protocol}
                     </td>
@@ -159,9 +159,9 @@ export default function DexPage() {
         {/* 池子分析 */}
         <h2 className="mb-4 text-xl font-semibold">池子分析（Top 20）</h2>
         {pl?.topPools ? (
-          <div className="overflow-hidden rounded-xl border border-gray-800">
+          <div className="overflow-hidden rounded-xl border border-gray-200">
             <table className="w-full text-sm">
-              <thead className="bg-gray-900 text-left text-gray-400">
+              <thead className="bg-white text-left text-gray-500">
                 <tr>
                   <th className="px-4 py-2">#</th>
                   <th className="px-4 py-2">池子</th>
@@ -173,8 +173,8 @@ export default function DexPage() {
               </thead>
               <tbody>
                 {pl.topPools.map((pool, i) => (
-                  <tr key={pool.pool} className="border-t border-gray-800">
-                    <td className="px-4 py-2 text-gray-600">{i + 1}.</td>
+                  <tr key={pool.pool} className="border-t border-gray-200">
+                    <td className="px-4 py-2 text-gray-500">{i + 1}.</td>
                     <td className="px-4 py-2 font-mono">{shortAddr(pool.pool)}</td>
                     <td className="px-4 py-2 tabular-nums">{pool.routedCount}</td>
                     <td className="px-4 py-2 tabular-nums">{pool.selectedCount}</td>
@@ -203,10 +203,10 @@ function KpiCard({
   accent?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+    <div className="rounded-xl border border-gray-200 bg-white p-4">
       <div className="mb-1 text-xs text-gray-500">{label}</div>
       <div
-        className={`tabular-nums text-2xl font-semibold ${accent ? "text-accent-400" : "text-gray-100"}`}
+        className={`tabular-nums text-2xl font-semibold ${accent ? "text-accent-400" : "text-gray-900"}`}
       >
         {value}
       </div>

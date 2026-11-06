@@ -33,7 +33,7 @@ export default function AiPage() {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <p className="mb-4 text-gray-400">请先完成管理员登录。</p>
+          <p className="mb-4 text-gray-500">请先完成管理员登录。</p>
           <a href="/" className="text-accent-400 hover:underline">
             返回登录页
           </a>
@@ -46,8 +46,8 @@ export default function AiPage() {
   const d = diagnose.data;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      <header className="sticky top-0 z-40 border-b border-gray-800 bg-gray-950/90 backdrop-blur">
+    <div className="min-h-screen bg-gray-100 text-gray-900">
+      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           <div className="flex items-center gap-3">
             <span className="text-lg font-bold">VORTEX</span>
@@ -55,7 +55,7 @@ export default function AiPage() {
               AI 分析
             </span>
           </div>
-          <a href="/dashboard" className="text-sm text-gray-500 hover:text-gray-300">
+          <a href="/dashboard" className="text-sm text-gray-500 hover:text-gray-700">
             返回仪表盘
           </a>
         </div>
@@ -73,7 +73,7 @@ export default function AiPage() {
         ) : s ? (
           <div className="mb-8 space-y-3">
             {s.report.map((p, i) => (
-              <div key={i} className="rounded-xl border border-gray-800 bg-gray-900 p-4 text-sm leading-relaxed">
+              <div key={i} className="rounded-xl border border-gray-200 bg-white p-4 text-sm leading-relaxed">
                 {p}
               </div>
             ))}
@@ -87,7 +87,7 @@ export default function AiPage() {
             value={intentId}
             onChange={(e) => setIntentId(e.target.value)}
             placeholder="输入 intent_id"
-            className="flex-1 rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm"
+            className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
           />
           <button
             onClick={() => intentId && diagnose.refetch()}
@@ -98,7 +98,7 @@ export default function AiPage() {
           </button>
         </div>
         {d && (
-          <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <div className="rounded-xl border border-gray-200 bg-white p-4">
             {Array.isArray(d.report) ? (
               <div className="space-y-2">
                 {d.report.map((p, i) => (
@@ -108,7 +108,7 @@ export default function AiPage() {
                 ))}
               </div>
             ) : (
-              <div className="text-sm text-gray-400">{d.report}</div>
+              <div className="text-sm text-gray-500">{d.report}</div>
             )}
             {d.diagnosis && (
               <div

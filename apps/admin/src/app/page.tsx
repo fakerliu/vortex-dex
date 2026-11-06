@@ -78,9 +78,9 @@ export default function LoginPage() {
   if (authed) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="rounded-xl border border-gray-800 bg-gray-900 p-8 text-center">
+        <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
           <div className="mb-4 text-2xl font-bold">VORTEX Analytics Center</div>
-          <p className="mb-6 text-sm text-gray-400">
+          <p className="mb-6 text-sm text-gray-500">
             已通过管理员验证。
             <br />
             仪表盘在下方页面（/dashboard）。
@@ -93,7 +93,7 @@ export default function LoginPage() {
           </a>
           <button
             onClick={handleLogout}
-            className="mt-4 block w-full text-sm text-gray-500 hover:text-gray-300"
+            className="mt-4 block w-full text-sm text-gray-500 hover:text-gray-700"
           >
             退出登录
           </button>
@@ -104,9 +104,9 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <div className="w-full max-w-md rounded-xl border border-gray-800 bg-gray-900 p-8">
+      <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-8">
         <h1 className="mb-2 text-2xl font-bold">VORTEX Analytics Center</h1>
-        <p className="mb-6 text-sm text-gray-400">
+        <p className="mb-6 text-sm text-gray-500">
           内部运营后台 — 仅限管理员访问。
         </p>
 
@@ -119,7 +119,7 @@ export default function LoginPage() {
           </button>
         ) : (
           <div>
-            <div className="mb-4 break-all rounded-lg bg-gray-800 p-3 text-xs text-gray-300">
+            <div className="mb-4 break-all rounded-lg bg-gray-100 p-3 text-xs text-gray-500">
               已连接：{address}
               {!admin && (
                 <div className="mt-2 text-danger">⚠ 不在管理员白名单内</div>
@@ -134,7 +134,7 @@ export default function LoginPage() {
             </button>
             <button
               onClick={() => disconnect()}
-              className="mt-3 w-full text-sm text-gray-500 hover:text-gray-300"
+              className="mt-3 w-full text-sm text-gray-500 hover:text-gray-700"
             >
               断开钱包
             </button>

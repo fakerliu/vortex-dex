@@ -59,7 +59,7 @@ export default function AnomalyPage() {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <p className="mb-4 text-gray-400">请先完成管理员登录。</p>
+          <p className="mb-4 text-gray-500">请先完成管理员登录。</p>
           <a href="/" className="text-accent-400 hover:underline">
             返回登录页
           </a>
@@ -72,8 +72,8 @@ export default function AnomalyPage() {
   const e = events.data;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      <header className="sticky top-0 z-40 border-b border-gray-800 bg-gray-950/90 backdrop-blur">
+    <div className="min-h-screen bg-gray-100 text-gray-900">
+      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           <div className="flex items-center gap-3">
             <span className="text-lg font-bold">VORTEX</span>
@@ -82,12 +82,12 @@ export default function AnomalyPage() {
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <a href="/dashboard" className="text-sm text-gray-500 hover:text-gray-300">
+            <a href="/dashboard" className="text-sm text-gray-500 hover:text-gray-700">
               返回仪表盘
             </a>
             <button
               onClick={() => seedMut.mutate()}
-              className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm hover:border-gray-600"
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:border-gray-400"
             >
               初始化规则
             </button>
@@ -105,13 +105,13 @@ export default function AnomalyPage() {
       <main className="mx-auto max-w-7xl px-6 py-8">
         {/* 扫描结果 */}
         {scanMut.data && (
-          <div className="mb-8 rounded-xl border border-gray-800 bg-gray-900 p-4">
+          <div className="mb-8 rounded-xl border border-gray-200 bg-white p-4">
             <div className="text-sm">
               扫描 {scanMut.data.scannedRules} 条规则，触发{" "}
               <span className="text-accent-400">{scanMut.data.triggered}</span> 条异常
             </div>
             {scanMut.data.anomalies.length > 0 && (
-              <ul className="mt-2 space-y-1 text-sm text-gray-400">
+              <ul className="mt-2 space-y-1 text-sm text-gray-500">
                 {scanMut.data.anomalies.map((a, i) => (
                   <li key={i}>
                     [{a.severity}] {a.ruleName}：{a.metricValue}
@@ -125,9 +125,9 @@ export default function AnomalyPage() {
         {/* 告警规则 */}
         <h2 className="mb-4 text-xl font-semibold">告警规则</h2>
         {r?.rules ? (
-          <div className="mb-8 overflow-hidden rounded-xl border border-gray-800">
+          <div className="mb-8 overflow-hidden rounded-xl border border-gray-200">
             <table className="w-full text-sm">
-              <thead className="bg-gray-900 text-left text-gray-400">
+              <thead className="bg-white text-left text-gray-500">
                 <tr>
                   <th className="px-4 py-2">规则名</th>
                   <th className="px-4 py-2">指标</th>
@@ -140,7 +140,7 @@ export default function AnomalyPage() {
               </thead>
               <tbody>
                 {r.rules.map((rule) => (
-                  <tr key={rule.id} className="border-t border-gray-800">
+                  <tr key={rule.id} className="border-t border-gray-200">
                     <td className="px-4 py-2">{rule.name}</td>
                     <td className="px-4 py-2 font-mono">{rule.metric_name}</td>
                     <td className="px-4 py-2 font-mono">{rule.operator}</td>
@@ -182,9 +182,9 @@ export default function AnomalyPage() {
           {e ? <span className="ml-2 text-sm text-gray-500">未处理 {e.openCount}</span> : null}
         </h2>
         {e?.events && e.events.length > 0 ? (
-          <div className="overflow-hidden rounded-xl border border-gray-800">
+          <div className="overflow-hidden rounded-xl border border-gray-200">
             <table className="w-full text-sm">
-              <thead className="bg-gray-900 text-left text-gray-400">
+              <thead className="bg-white text-left text-gray-500">
                 <tr>
                   <th className="px-4 py-2">级别</th>
                   <th className="px-4 py-2">规则</th>
@@ -197,7 +197,7 @@ export default function AnomalyPage() {
               </thead>
               <tbody>
                 {e.events.map((ev) => (
-                  <tr key={ev.id} className="border-t border-gray-800">
+                  <tr key={ev.id} className="border-t border-gray-200">
                     <td className="px-4 py-2">
                       <SeverityBadge severity={ev.severity} />
                     </td>

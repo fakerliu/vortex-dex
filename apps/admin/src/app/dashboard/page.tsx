@@ -75,7 +75,7 @@ export default function DashboardPage() {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <p className="mb-4 text-gray-400">请先完成管理员登录。</p>
+          <p className="mb-4 text-gray-500">请先完成管理员登录。</p>
           <a href="/" className="text-accent-400 hover:underline">
             返回登录页
           </a>
@@ -90,9 +90,9 @@ export default function DashboardPage() {
   const t = trading.data;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="min-h-screen bg-gray-100 text-gray-900">
       {/* 顶栏 */}
-      <header className="sticky top-0 z-40 border-b border-gray-800 bg-gray-950/90 backdrop-blur">
+      <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
           <div className="flex items-center gap-3">
             <span className="text-lg font-bold">VORTEX</span>
@@ -101,19 +101,19 @@ export default function DashboardPage() {
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <a href="/dex" className="text-sm text-gray-500 hover:text-gray-300">
+            <a href="/dex" className="text-sm text-gray-500 hover:text-gray-700">
               DEX 专业分析
             </a>
-            <a href="/monitor" className="text-sm text-gray-500 hover:text-gray-300">
+            <a href="/monitor" className="text-sm text-gray-500 hover:text-gray-700">
               系统监控
             </a>
-            <a href="/anomaly" className="text-sm text-gray-500 hover:text-gray-300">
+            <a href="/anomaly" className="text-sm text-gray-500 hover:text-gray-700">
               异常中心
             </a>
-            <a href="/diagnosis" className="text-sm text-gray-500 hover:text-gray-300">
+            <a href="/diagnosis" className="text-sm text-gray-500 hover:text-gray-700">
               问题诊断
             </a>
-            <a href="/ai" className="text-sm text-gray-500 hover:text-gray-300">
+            <a href="/ai" className="text-sm text-gray-500 hover:text-gray-700">
               AI 分析
             </a>
             <select
@@ -121,7 +121,7 @@ export default function DashboardPage() {
               onChange={(e) =>
                 setChainId(e.target.value ? Number(e.target.value) : undefined)
               }
-              className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-1.5 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm"
             >
               <option value="">全部链</option>
               <option value="8453">Base Mainnet (8453)</option>
@@ -132,7 +132,7 @@ export default function DashboardPage() {
             )}
             <button
               onClick={handleLogout}
-              className="text-sm text-gray-500 hover:text-gray-300"
+              className="text-sm text-gray-500 hover:text-gray-700"
             >
               退出
             </button>
@@ -170,8 +170,8 @@ export default function DashboardPage() {
               const max = Math.max(...f.steps.map((x) => x.count), 1);
               return (
                 <div key={s.name} className="flex items-center gap-3">
-                  <span className="w-40 text-sm text-gray-400">{s.name}</span>
-                  <div className="h-6 flex-1 overflow-hidden rounded bg-gray-800">
+                  <span className="w-40 text-sm text-gray-500">{s.name}</span>
+                  <div className="h-6 flex-1 overflow-hidden rounded bg-gray-100">
                     <div
                       className="flex h-full items-center bg-accent-500 px-2 text-xs text-white"
                       style={{ width: `${(s.count / max) * 100}%` }}
@@ -190,17 +190,17 @@ export default function DashboardPage() {
           <div>
             <h2 className="mb-4 text-xl font-semibold">活跃钱包 Top 20</h2>
             {u?.topWallets ? (
-              <div className="overflow-hidden rounded-xl border border-gray-800">
+              <div className="overflow-hidden rounded-xl border border-gray-200">
                 {u.topWallets.map((w, i) => (
                   <div
                     key={w.wallet}
-                    className="flex items-center justify-between border-b border-gray-800 px-4 py-2 text-sm last:border-0"
+                    className="flex items-center justify-between border-b border-gray-200 px-4 py-2 text-sm last:border-0"
                   >
-                    <span className="text-gray-300">
-                      <span className="mr-2 text-gray-600">{i + 1}.</span>
+                    <span className="text-gray-500">
+                      <span className="mr-2 text-gray-500">{i + 1}.</span>
                       {shortAddr(w.wallet)}
                     </span>
-                    <span className="tabular-nums text-gray-400">{w.swaps} 笔</span>
+                    <span className="tabular-nums text-gray-500">{w.swaps} 笔</span>
                   </div>
                 ))}
               </div>
@@ -210,17 +210,17 @@ export default function DashboardPage() {
           <div>
             <h2 className="mb-4 text-xl font-semibold">交易对 Top 20</h2>
             {t?.topPairs ? (
-              <div className="overflow-hidden rounded-xl border border-gray-800">
+              <div className="overflow-hidden rounded-xl border border-gray-200">
                 {t.topPairs.map((p, i) => (
                   <div
                     key={`${p.tokenIn}-${p.tokenOut}`}
-                    className="flex items-center justify-between border-b border-gray-800 px-4 py-2 text-sm last:border-0"
+                    className="flex items-center justify-between border-b border-gray-200 px-4 py-2 text-sm last:border-0"
                   >
-                    <span className="text-gray-300">
-                      <span className="mr-2 text-gray-600">{i + 1}.</span>
+                    <span className="text-gray-500">
+                      <span className="mr-2 text-gray-500">{i + 1}.</span>
                       {shortAddr(p.tokenIn)} → {shortAddr(p.tokenOut)}
                     </span>
-                    <span className="tabular-nums text-gray-400">{p.swaps} 笔</span>
+                    <span className="tabular-nums text-gray-500">{p.swaps} 笔</span>
                   </div>
                 ))}
               </div>
@@ -242,10 +242,10 @@ function KpiCard({
   accent?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900 p-4">
+    <div className="rounded-xl border border-gray-200 bg-white p-4">
       <div className="mb-1 text-xs text-gray-500">{label}</div>
       <div
-        className={`tabular-nums text-2xl font-semibold ${accent ? "text-accent-400" : "text-gray-100"}`}
+        className={`tabular-nums text-2xl font-semibold ${accent ? "text-accent-400" : "text-gray-900"}`}
       >
         {value}
       </div>
