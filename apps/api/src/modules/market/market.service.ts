@@ -2,6 +2,8 @@ import {
   BadRequestException,
   Injectable,
   Logger,
+  OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DexPoolService } from '../../dex/dex-pool.service';
@@ -49,6 +51,9 @@ const BASE_TOKEN_ADDRESSES: Record<number, { usdc: string; weth: string }> = {
 const USDC_DECIMALS = 6;
 const WETH_DECIMALS = 18;
 
+/** 后台定时刷新 catalog 核心币快照的默认间隔（毫秒）。 */
+const DEFAULT_SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000;
+
 /** 价格推导用的参考量：1 个目标 token（chain 原始大整数）。 */
 function referenceAmount(decimals: number): string {
   return (10n ** BigInt(decimals)).toString();
@@ -77,8 +82,10 @@ function mulDecimal(a: string, b: string): string {
  * 不抛 500 —— 市场数据部分失败不应拖垮整个接口。
  */
 @Injectable()
-export class MarketService {
+export class MarketService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MarketService.name);
+  private snapshotTimer: NodeJS.Timeout | null = null;
+  private snapshotRunning = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -87,6 +94,75 @@ export class MarketService {
     private readonly alerts: AlertsService,
     private readonly priceProvider: PriceProviderService,
   ) {}
+
+  onModuleInit(): void {
+    if (this.snapshotAutostart()) {
+      this.startSnapshotScheduler();
+    }
+  }
+
+  onModuleDestroy(): void {
+    this.stopSnapshotScheduler();
+  }
+
+  // ---------- 定时刷新（治本：catalog 核心币价格自动更新） ----------
+
+  private startSnapshotScheduler(): void {
+    if (this.snapshotTimer) {
+      return;
+    }
+    const interval = this.snapshotIntervalMs();
+    this.logger.log(
+      `市场快照后台刷新启动（interval=${interval}ms，仅刷新 catalog 核心币）`,
+    );
+    this.snapshotTimer = setInterval(() => {
+      void this.refreshCatalogSnapshots();
+    }, interval);
+    // 启动后立即刷新一次，避免首屏仍停留在陈旧快照。
+    void this.refreshCatalogSnapshots();
+  }
+
+  private stopSnapshotScheduler(): void {
+    if (this.snapshotTimer) {
+      clearInterval(this.snapshotTimer);
+      this.snapshotTimer = null;
+      this.logger.log('市场快照后台刷新已停止');
+    }
+  }
+
+  /** 刷新 catalog 核心币快照；任何失败都吞掉，不影响下次调度。 */
+  private async refreshCatalogSnapshots(): Promise<void> {
+    if (this.snapshotRunning) {
+      return;
+    }
+    this.snapshotRunning = true;
+    try {
+      // 仅刷新主网 7 个 verified 核心币（BASE_MAINNET_TOKENS），
+      // 其余长尾币靠 ranking 的实时兜底按需查，避免打爆 RPC / CoinGecko。
+      await this.getMarketSnapshot(BASE_MAINNET_CHAIN_ID);
+    } catch (err) {
+      this.logger.warn(`市场快照定时刷新失败: ${this.errMsg(err)}`);
+    } finally {
+      this.snapshotRunning = false;
+    }
+  }
+
+  private snapshotAutostart(): boolean {
+    const raw = process.env.MARKET_SNAPSHOT_AUTOSTART;
+    if (raw === undefined) {
+      return true;
+    }
+    return raw === 'true';
+  }
+
+  private snapshotIntervalMs(): number {
+    const raw = Number(
+      process.env.MARKET_SNAPSHOT_INTERVAL_MS ?? DEFAULT_SNAPSHOT_INTERVAL_MS,
+    );
+    return Number.isFinite(raw) && raw > 0
+      ? Math.floor(raw)
+      : DEFAULT_SNAPSHOT_INTERVAL_MS;
+  }
 
   /** 单 token 价格（token→USDC 或 token→WETH→USDC 链上推导）。 */
   async getTokenPrice(
@@ -296,18 +372,23 @@ export class MarketService {
     return 18;
   }
 
-  /** 追加一条历史快照（create）；失败仅告警，不影响返回。 */
-  private async persistSnapshot(
+  /**
+   * 追加一条价格快照（create，append-only）。
+   * market_snapshots 无 [chain_id, token_address] 唯一约束，历史快照全部追加，
+   * 榜单按 created_at 取最新一条即可。供 ranking 实时兜底后落库复用。
+   * 失败仅告警，不影响调用方。
+   */
+  async persistPriceSnapshot(
     chainId: number,
-    token: TokenCatalogEntry,
+    tokenAddress: string,
     price: MarketPriceDto,
+    symbol = tokenAddress,
   ): Promise<void> {
     try {
-      const tokenAddress = normalizeAddress(token.address);
       await this.prisma.marketSnapshot.create({
         data: {
           chain_id: chainId,
-          token_address: tokenAddress,
+          token_address: normalizeAddress(tokenAddress),
           price_usd: price.priceUsd,
           quote_token: price.quoteToken,
           liquidity_usd: null,
@@ -318,9 +399,18 @@ export class MarketService {
       });
     } catch (err) {
       this.logger.warn(
-        `MarketSnapshot 落库失败 ${token.symbol}: ${this.errMsg(err)}`,
+        `MarketSnapshot 落库失败 ${symbol}: ${this.errMsg(err)}`,
       );
     }
+  }
+
+  /** 追加一条历史快照（create）；失败仅告警，不影响返回。 */
+  private async persistSnapshot(
+    chainId: number,
+    token: TokenCatalogEntry,
+    price: MarketPriceDto,
+  ): Promise<void> {
+    await this.persistPriceSnapshot(chainId, token.address, price, token.symbol);
   }
 
   private catalogTokensForChain(chainId: number): TokenCatalogEntry[] {

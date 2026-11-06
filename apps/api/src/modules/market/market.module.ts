@@ -15,8 +15,8 @@ import { PriceProviderService } from './price-provider.service';
  * - PrismaModule / ChainModule 均为 @Global，无需重复导入（PrismaService /
  *   ChainRpcService 直接注入）。
  *
- * MarketRankingService 只做只读聚合（价格快照 + Token 元数据 + Swap 成交量），
- * 仅依赖 PrismaService，无需 DexPoolService / ChainRpcService。
+ * MarketRankingService 做只读聚合（价格快照 + Token 元数据 + Swap 成交量），
+ * 依赖 PrismaService + MarketService（无快照币的实时价格兜底，单向依赖，无环）。
  */
 @Module({
   imports: [DexModule, AlertsModule],

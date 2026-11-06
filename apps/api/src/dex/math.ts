@@ -369,15 +369,65 @@ export function formatPrice(
 
 /** 十进制字符串 -> 定点 BigInt（scale 位小数），支持负数。如 "0.006" -> 6*10^(scale-3)。 */
 export function parseDecimal(s: string, scale = 18n): bigint {
-  const t = s.trim();
+  let t = s.trim();
   const neg = t.startsWith('-');
-  const abs = neg ? t.slice(1) : t;
-  const [intPart, fracPart = ''] = abs.split('.');
+  if (neg) {
+    t = t.slice(1);
+  }
+
+  // 容错：科学计数法字符串（如 "8.15681901e-10"，Prisma Decimal.toString()
+  // 对极小值会输出此格式）先展开为普通十进制，避免 BigInt() 抛错。
+  if (t.includes('e') || t.includes('E')) {
+    t = expandScientific(t);
+  }
+
+  const [intPart, fracPart = ''] = t.split('.');
   const intScaled = BigInt(intPart || '0') * 10n ** scale;
   const fracStr = (fracPart || '').padEnd(Number(scale), '0').slice(0, Number(scale));
   const frac = fracStr ? BigInt(fracStr) : 0n;
   const v = intScaled + frac;
   return neg ? -v : v;
+}
+
+/**
+ * 将科学计数法十进制字符串展开为普通十进制字符串（纯字符串运算，不用 Float）。
+ * 例如 "8.15681901e-10" -> "0.000000000815681901"、"1.5e3" -> "1500"。
+ */
+function expandScientific(t: string): string {
+  const m = t.match(/^([+-]?\d+(?:\.\d+)?)[eE]([+-]?\d+)$/);
+  if (!m) {
+    // 不是合法科学计数法，原样返回，交由下游 BigInt 抛错并给出清晰报错。
+    return t;
+  }
+  const mantissa = m[1];
+  const exp = Number(m[2]);
+  const sign = mantissa.startsWith('-') ? '-' : '';
+  const digits = (mantissa.startsWith('-') || mantissa.startsWith('+')
+    ? mantissa.slice(1)
+    : mantissa
+  ).replace('.', '');
+
+  let intPart: string;
+  let fracPart: string;
+  if (exp >= 0) {
+    // 正指数：小数点右移，右侧补 0。
+    const dotPos = 1 + exp; // 假设原整数部分 1 位（或 0 位），统一按 digits 长度处理
+    if (dotPos >= digits.length) {
+      intPart = digits + '0'.repeat(dotPos - digits.length);
+      fracPart = '';
+    } else {
+      intPart = digits.slice(0, dotPos) || '0';
+      fracPart = digits.slice(dotPos);
+    }
+  } else {
+    // 负指数：小数点左移，前面补 0。
+    const zeros = -exp - 1;
+    intPart = '0';
+    fracPart = '0'.repeat(Math.max(0, zeros)) + digits;
+  }
+
+  const result = fracPart ? `${intPart}.${fracPart}` : intPart;
+  return sign ? `-${result}` : result;
 }
 
 /**

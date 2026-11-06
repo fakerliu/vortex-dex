@@ -11,6 +11,7 @@ import {
 } from '../../chain/chain.constants';
 import { normalizeAddress } from '../../chain/address';
 import { getCatalogEntry } from '../../chain/token-catalog';
+import { MarketService } from './market.service';
 import type { RankingItem, RankingResult, RankingSortBy } from './market.types';
 
 const DEFAULT_LIMIT = 20;
@@ -20,12 +21,19 @@ const VOLUME_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** 定点小数精度（与 dex/math 的 parseDecimal / formatUnits 一致，18 位）。 */
 const PRICE_SCALE = 18n;
 
-/** Prisma.Decimal -> 干净十进制字符串（去尾零），null 透传。 */
+/**
+ * Prisma.Decimal -> 干净十进制字符串（去尾零），null 透传。
+ *
+ * 注意：Decimal.toString() 对极小值（< 1e-7）会输出科学计数法（如
+ * "8.15681901e-10"），下游 parseDecimal 的 BigInt() 无法解析，导致
+ * "Cannot convert ... to a BigInt" 崩溃。这里改用 toFixed() 强制输出
+ * 固定十进制（绝不产生科学计数法），再去除尾零。
+ */
 function decimalToString(d: Prisma.Decimal | null | undefined): string | null {
   if (d == null) {
     return null;
   }
-  let s = d.toString();
+  let s = d.toFixed();
   if (s.includes('.')) {
     s = s.replace(/0+$/, '');
     s = s.replace(/\.$/, '');
@@ -72,7 +80,10 @@ function compareDesc(a: string | null, b: string | null): number {
 export class MarketRankingService {
   private readonly logger = new Logger(MarketRankingService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly marketService: MarketService,
+  ) {}
 
   async getRanking(
     chainId: number | undefined,
@@ -156,12 +167,18 @@ export class MarketRankingService {
     this.sortItems(items, effectiveSort);
 
     const skip = (resolvedPage - 1) * resolvedLimit;
+    const pageItems = items.slice(skip, skip + resolvedLimit);
+
+    // 治标：无快照的币在排序阶段无价格排最后，这里只对当前页 slice 出来的
+    // 那些无价格项做实时查价（最多 limit 个），避免串行查全部 195 个打爆 RPC。
+    await this.enrichMissingPrices(resolvedChainId, pageItems);
+
     return {
       chainId: resolvedChainId,
       sortBy: effectiveSort,
       limit: resolvedLimit,
       total: items.length,
-      items: items.slice(skip, skip + resolvedLimit),
+      items: pageItems,
     };
   }
 
@@ -199,6 +216,58 @@ export class MarketRankingService {
         `Swap 成交量聚合失败（chain=${chainId}）: ${this.errMsg(err)}`,
       );
       return null;
+    }
+  }
+
+  /**
+   * 对当前页中无价格的项做实时兜底（链上报价 → CoinGecko，复用 MarketService）。
+   * 并发分块（每块 5 个），避免同时打爆 RPC / CoinGecko 免费档。查到的价格
+   * 落库快照（append-only），减少下次请求重复查询；单项失败静默降级。
+   */
+  private async enrichMissingPrices(
+    chainId: number,
+    items: RankingItem[],
+  ): Promise<void> {
+    const missing = items.filter((it) => it.priceUsd === null);
+    if (missing.length === 0) {
+      return;
+    }
+
+    const CONCURRENCY = 5;
+    for (let i = 0; i < missing.length; i += CONCURRENCY) {
+      const chunk = missing.slice(i, i + CONCURRENCY);
+      await Promise.all(
+        chunk.map((item) => this.enrichOne(chainId, item)),
+      );
+    }
+  }
+
+  private async enrichOne(
+    chainId: number,
+    item: RankingItem,
+  ): Promise<void> {
+    try {
+      const price = await this.marketService.getTokenPrice(
+        chainId,
+        item.address,
+      );
+      item.priceUsd = price.priceUsd;
+      item.quoteToken = price.quoteToken;
+      item.authenticity = price.authenticity;
+      item.source = price.source;
+      item.blockNumber = price.blockNumber;
+
+      // 落库（失败内部已吞掉，不抛错），减少下次请求重复查询。
+      await this.marketService.persistPriceSnapshot(
+        chainId,
+        item.address,
+        price,
+        item.symbol ?? item.address,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `榜单实时价格兜底失败（${item.symbol ?? item.address}）: ${this.errMsg(err)}`,
+      );
     }
   }
 
