@@ -25,10 +25,10 @@ import {
 } from '../dex/aerodrome/abis';
 import {
   INDEXER_CHAIN_ID,
-  LOG_ADDRESS_BATCH_SIZE,
   REORG_SAFE_DEPTH,
   resolveChunkBlocks,
   resolveIndexedTopics,
+  resolveLogAddressBatchSize,
   SCAN_INTERVAL_MS,
   WRITE_BATCH_SIZE,
 } from './indexer.constants';
@@ -179,8 +179,8 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       }
 
       // 2. 分块拉日志 + 解析 + 标准化
-      //    - 地址分批（每批 ≤ LOG_ADDRESS_BATCH_SIZE）：33k+ 池地址不能一次塞进单个
-      //      eth_getLogs（请求体超限 / RPC 拒绝），循环分批复用同一 topics。
+      //    - 地址分批（每批 ≤ resolveLogAddressBatchSize()）：33k+ 池地址不能一次塞进
+      //      单个 eth_getLogs（请求体超限 / RPC 拒绝），循环分批复用同一 topics。
       //    - D7：INDEXER_INDEX_SWAP_ONLY=true 时 topics 仅保留 Swap 的 topic0。
       const addressList = pools.map((p) => p.address);
       const poolByAddress = new Map(pools.map((p) => [p.address, p]));
@@ -188,8 +188,9 @@ export class IndexerService implements OnModuleInit, OnModuleDestroy {
       let fetchedLogs = 0;
 
       const addressBatches: string[][] = [];
-      for (let i = 0; i < addressList.length; i += LOG_ADDRESS_BATCH_SIZE) {
-        addressBatches.push(addressList.slice(i, i + LOG_ADDRESS_BATCH_SIZE));
+      const logAddressBatchSize = resolveLogAddressBatchSize();
+      for (let i = 0; i < addressList.length; i += logAddressBatchSize) {
+        addressBatches.push(addressList.slice(i, i + logAddressBatchSize));
       }
 
       const chunkBlocks = resolveChunkBlocks();

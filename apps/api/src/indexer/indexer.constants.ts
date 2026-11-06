@@ -91,9 +91,23 @@ export const ALL_INDEXED_TOPICS: string[] = [
 
 /**
  * 单次 getLogs 的地址批大小（避免 33k+ 池地址一次塞进单个 eth_getLogs 打爆 RPC）。
- * 公共 RPC 对 address 数组长度与请求体大小都有限制，500 是实测较稳的档位。
+ *
+ * 注意：地址上限因 RPC 端点而异（已实测）：
+ * - Alchemy（免费档）：支持 ≥500 个地址（本默认值针对 Alchemy 为主端点）。
+ * - publicnode 免费档：单个 eth_getLogs 最多 10 个地址。
+ * - mainnet.base.org 官方公共端点：eth_getLogs 限流极严，基本不可用。
+ * 若把 publicnode 设为主端点，需通过 INDEXER_LOG_ADDRESS_BATCH=10 覆盖本值。
  */
-export const LOG_ADDRESS_BATCH_SIZE = 500;
+const DEFAULT_LOG_ADDRESS_BATCH_SIZE = 500;
+
+/** 解析单次 getLogs 的地址批大小（可用 INDEXER_LOG_ADDRESS_BATCH 覆盖）。 */
+export function resolveLogAddressBatchSize(): number {
+  const raw = Number(process.env.INDEXER_LOG_ADDRESS_BATCH);
+  if (Number.isInteger(raw) && raw >= 1 && raw <= 10000) {
+    return raw;
+  }
+  return DEFAULT_LOG_ADDRESS_BATCH_SIZE;
+}
 
 /**
  * 是否只索引 Swap 事件（D7）。
