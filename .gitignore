@@ -56,3 +56,6 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# ===== 链上数据脚本断点续传 checkpoint =====
+apps/api/.discover-pools-checkpoint.json
