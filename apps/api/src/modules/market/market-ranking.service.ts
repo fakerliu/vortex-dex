@@ -11,6 +11,9 @@ import {
 } from '../../chain/chain.constants';
 import { normalizeAddress } from '../../chain/address';
 import { getCatalogEntry } from '../../chain/token-catalog';
+import { ChainRpcService } from '../../chain/chain-rpc.service';
+import { findBlockByTimestamp } from '../../chain/block-time';
+import { deriveSwapDirection, parseSwapEventData } from '../swap/swap-event.util';
 import { MarketService } from './market.service';
 import type { RankingItem, RankingResult, RankingSortBy } from './market.types';
 
@@ -20,6 +23,10 @@ const MAX_LIMIT = 100;
 const VOLUME_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** 定点小数精度（与 dex/math 的 parseDecimal / formatUnits 一致，18 位）。 */
 const PRICE_SCALE = 18n;
+/** 24h 边界块的缓存时长（毫秒）。Base 约 2s/块，60s 内边界块漂移 ≤ 30 块，可忽略。 */
+const BLOCK_BOUNDARY_CACHE_MS = 60 * 1000;
+/** swap_events 游标分页的每页条数。 */
+const SWAP_EVENT_PAGE_SIZE = 5000;
 
 /**
  * Prisma.Decimal -> 干净十进制字符串（去尾零），null 透传。
@@ -60,12 +67,12 @@ function compareDesc(a: string | null, b: string | null): number {
 /**
  * Explore 代币榜单聚合（Sprint 3）。
  *
- * 只读聚合，不发 RPC / 不推导价格：
+ * 只读聚合，不推导价格（仅成交量边界块需读一次链上时间戳做二分，结果缓存）：
  * - 价格：取 market_snapshots 该链最新快照（price_usd / quote_token /
  *   block_number / authenticity / source）。
  * - 元数据：join Token 表拿 symbol / name / logo / verified / risk。
- * - 成交量：从 Swap 表按 token_out 聚合近 24h 的 amount_out，再按该 token
- *   价格换算为 USD（volumeUsd）。Swap 表无数据则如实返回 0，不编造。
+ * - 成交量：从 swap_events 按 tokenOut 聚合近 24h 的 amountOut，再按该 token
+ *   价格换算为 USD（volumeUsd）。swap_events 无数据则如实返回 0，不编造。
  *
  * 榜单基集 = Token 注册表 ∪ 快照表。无快照的 token 仍返回（priceUsd=null +
  * authenticity=UNAVAILABLE），不丢弃。
@@ -79,10 +86,16 @@ function compareDesc(a: string | null, b: string | null): number {
 @Injectable()
 export class MarketRankingService {
   private readonly logger = new Logger(MarketRankingService.name);
+  /** 24h 边界块缓存（key=chainId），避免每次请求都做 ~26 次 getBlock 二分。 */
+  private readonly blockBoundaryCache = new Map<
+    number,
+    { value: number; at: number }
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly marketService: MarketService,
+    private readonly rpc: ChainRpcService,
   ) {}
 
   async getRanking(
@@ -184,36 +197,131 @@ export class MarketRankingService {
 
   // ---------- 私有工具 ----------
 
-  /** 聚合近 24h 各 token_out 的 amount_out 原始大整数；查询失败返回 null（如实降级）。 */
+  /** 聚合近 24h 各 token 的 amount_out 原始大整数（读 swap_events）；失败返回 null（如实降级）。 */
   private async aggregateVolume(
     chainId: number,
   ): Promise<Map<string, bigint> | null> {
-    const since = new Date(Date.now() - VOLUME_WINDOW_MS);
+    return this.aggregateVolumeFromEvents(chainId);
+  }
+
+  /**
+   * 从 swap_events 聚合近 24h 成交量（D6：仅按 amountOut 记一次，不重复归因）。
+   *
+   * 数据流：swap_events(event_type='Swap' & block_number >= 24h 边界块)
+   *         → parseSwapEventData 解析 event_data JSON
+   *         → 按 event_data.pool(小写) join pools 拿 token0/token1
+   *         → deriveSwapDirection 统一 CL/classic → tokenOut/amountOut
+   *         → 按 tokenOut 累加 amountOut（链上原始大整数）。
+   *
+   * 说明：
+   * - 近 24h 用「区块号」而非 created_at（created_at 是索引时间，D4 零迁移）。
+   * - swap_events 无 chain_id，靠 join pools(chain_id=8453) 隐式限定链。
+   * - event_data 只有 pool(小写)/poolId，token 信息来自 pools 表。
+   */
+  private async aggregateVolumeFromEvents(
+    chainId: number,
+  ): Promise<Map<string, bigint> | null> {
+    const boundary = await this.resolveBlockForTimestamp(
+      chainId,
+      Date.now() - VOLUME_WINDOW_MS,
+    );
+    if (boundary === null) {
+      this.logger.warn(
+        `无法解析近 24h 边界块（chain=${chainId}），成交量降级为 UNAVAILABLE`,
+      );
+      return null;
+    }
+
     try {
-      const grouped = await this.prisma.swap.groupBy({
-        by: ['token_out'],
-        where: {
-          chain_id: chainId,
-          status: 'CONFIRMED',
-          created_at: { gte: since },
-        },
-        _sum: { amount_out: true },
+      // join 用 pool_address（event_data.pool 为小写地址，poolId 在 JSON 内无法走索引）。
+      const pools = await this.prisma.pool.findMany({
+        where: { chain_id: chainId },
+        select: { pool_address: true, token0_address: true, token1_address: true },
       });
+      const tokenByPool = new Map<string, [string, string]>(
+        pools.map((p) => [
+          p.pool_address,
+          [p.token0_address, p.token1_address],
+        ]),
+      );
 
       const map = new Map<string, bigint>();
-      for (const g of grouped) {
-        const sum = g._sum.amount_out;
-        if (sum == null) {
-          continue;
+      let cursor: string | undefined;
+      while (true) {
+        const rows = await this.prisma.swapEvent.findMany({
+          where: {
+            event_type: 'Swap',
+            block_number: { gte: boundary },
+            ...(cursor ? { id: { gt: cursor } } : {}),
+          },
+          orderBy: { id: 'asc' },
+          take: SWAP_EVENT_PAGE_SIZE,
+          select: { id: true, event_data: true },
+        });
+        if (rows.length === 0) {
+          break;
         }
-        const address = normalizeAddress(g.token_out);
-        const raw = BigInt(sum.toString());
-        map.set(address, (map.get(address) ?? 0n) + raw);
+
+        for (const row of rows) {
+          const ev = parseSwapEventData(row.event_data);
+          const tokens = tokenByPool.get(ev.pool);
+          if (!tokens) {
+            continue; // 池子不在本链 pools 表（或已删除），跳过
+          }
+          const dir = deriveSwapDirection(ev, tokens[0], tokens[1]);
+          if (!dir) {
+            continue;
+          }
+          let amountOut: bigint;
+          try {
+            amountOut = BigInt(dir.amountOut);
+          } catch {
+            continue;
+          }
+          if (amountOut <= 0n) {
+            continue;
+          }
+          const out = normalizeAddress(dir.tokenOut);
+          map.set(out, (map.get(out) ?? 0n) + amountOut);
+        }
+
+        cursor = rows[rows.length - 1].id;
+        if (rows.length < SWAP_EVENT_PAGE_SIZE) {
+          break;
+        }
       }
       return map;
     } catch (err) {
       this.logger.warn(
-        `Swap 成交量聚合失败（chain=${chainId}）: ${this.errMsg(err)}`,
+        `swap_events 成交量聚合失败（chain=${chainId}）: ${this.errMsg(err)}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * 解析某时间戳对应的链上区块号（D4 零迁移）。
+   * 最新块 timestamp 已知后，用 findBlockByTimestamp 二分得到边界块；
+   * 结果缓存 60s（Base 出块约 2s，窗口漂移 ≤ 30 块，对 24h 成交量误差可忽略）。
+   */
+  private async resolveBlockForTimestamp(
+    chainId: number,
+    tsMs: number,
+  ): Promise<number | null> {
+    const targetTs = Math.floor(tsMs / 1000);
+    const cached = this.blockBoundaryCache.get(chainId);
+    if (cached && Date.now() - cached.at < BLOCK_BOUNDARY_CACHE_MS) {
+      return cached.value;
+    }
+
+    try {
+      const client = this.rpc.getClient(chainId);
+      const boundary = await findBlockByTimestamp(client, targetTs);
+      this.blockBoundaryCache.set(chainId, { value: boundary, at: Date.now() });
+      return boundary;
+    } catch (err) {
+      this.logger.warn(
+        `解析区块时间边界失败（chain=${chainId}）: ${this.errMsg(err)}`,
       );
       return null;
     }
