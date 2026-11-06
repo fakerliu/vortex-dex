@@ -38,13 +38,22 @@ import {
 const CHAIN_ID = BASE_MAINNET_CHAIN_ID;
 
 /** 单次 multicall 枚举池地址的条数。 */
-const ADDR_BATCH = 1000;
+const ADDR_BATCH = 500;
 /** 单次 multicall 读取 token0/token1 的池子数（每池 2 个 view 调用）。 */
-const TOKEN_BATCH = 500;
+const TOKEN_BATCH = 250;
 /** 单次 createMany 落库的池子条数。 */
 const DB_BATCH = 1000;
 
 const CHECKPOINT_PATH = join(process.cwd(), '.discover-pools-checkpoint.json');
+
+type Call = {
+  address: `0x${string}`;
+  abi: unknown;
+  functionName: string;
+  args?: unknown[];
+};
+
+type CallResult = { status: 'success' | 'failure'; result?: unknown };
 
 interface FactoryCheckpoint {
   total: number;
@@ -69,6 +78,10 @@ interface FactorySpec {
   poolAbi: unknown;
   protocolId: string;
   checkpointKey: 'classic' | 'cl';
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function resolveRpcUrl(): string {
@@ -103,6 +116,27 @@ function loadCheckpoint(): Checkpoint {
 
 function saveCheckpoint(cp: Checkpoint): void {
   writeFileSync(CHECKPOINT_PATH, JSON.stringify(cp, null, 2), 'utf8');
+}
+
+/** multicall 统一入口：整批 throw 时重试 2 次；单条失败由调用方二次补读。 */
+async function multicall(
+  client: PublicClient,
+  contracts: Call[],
+): Promise<CallResult[]> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      return (await client.multicall({
+        contracts: contracts as never,
+        allowFailure: true,
+      })) as CallResult[];
+    } catch (err) {
+      if (attempt === 2) {
+        throw err;
+      }
+      await sleep(500 * attempt);
+    }
+  }
+  throw new Error('unreachable');
 }
 
 /** 幂等 upsert 协议记录，返回 protocol_id。 */
@@ -160,22 +194,35 @@ async function readAddresses(
   from: number,
   to: number,
 ): Promise<string[]> {
-  const contracts = [] as unknown[];
+  const contracts: Call[] = [];
   for (let i = from; i < to; i++) {
-    contracts.push({
-      address: factory,
-      abi,
-      functionName: 'allPools',
-      args: [i],
+    contracts.push({ address: factory, abi, functionName: 'allPools', args: [i] });
+  }
+  const res = await multicall(client, contracts);
+
+  // 二次补读失败项
+  const failedIdx = res
+    .map((r, k) => (r.status === 'success' ? -1 : k))
+    .filter((k) => k >= 0);
+  if (failedIdx.length > 0) {
+    const retryRes = await multicall(
+      client,
+      failedIdx.map((k) => contracts[k]),
+    );
+    failedIdx.forEach((k, j) => {
+      res[k] = retryRes[j];
     });
   }
-  const results = (await client.multicall({
-    contracts: contracts as never,
-    allowFailure: true,
-  })) as Array<{ status: string; result?: unknown }>;
-  return results
-    .filter((r) => r.status === 'success' && typeof r.result === 'string')
-    .map((r) => (r.result as string).toLowerCase());
+
+  const out: string[] = [];
+  res.forEach((r) => {
+    if (r.status === 'success' && typeof r.result === 'string') {
+      out.push((r.result as string).toLowerCase());
+    } else {
+      console.warn(`  [warn] allPools 读取失败（已重试）: index=${from + res.indexOf(r)}`);
+    }
+  });
+  return out;
 }
 
 async function readTokenPairs(
@@ -186,18 +233,43 @@ async function readTokenPairs(
   const out: PoolRow[] = [];
   for (let i = 0; i < addresses.length; i += TOKEN_BATCH) {
     const chunk = addresses.slice(i, i + TOKEN_BATCH);
-    const contracts = [] as unknown[];
+    const contracts: Call[] = [];
     for (const addr of chunk) {
       contracts.push({ address: addr as `0x${string}`, abi: poolAbi, functionName: 'token0' });
       contracts.push({ address: addr as `0x${string}`, abi: poolAbi, functionName: 'token1' });
     }
-    const results = (await client.multicall({
-      contracts: contracts as never,
-      allowFailure: true,
-    })) as Array<{ status: string; result?: unknown }>;
+    const res = await multicall(client, contracts);
+
+    // 二次补读失败的池（token0/token1 任一失败）
+    const failedPools: number[] = [];
     for (let j = 0; j < chunk.length; j++) {
-      const t0 = results[j * 2];
-      const t1 = results[j * 2 + 1];
+      const t0 = res[j * 2];
+      const t1 = res[j * 2 + 1];
+      const ok =
+        t0?.status === 'success' &&
+        t1?.status === 'success' &&
+        typeof t0.result === 'string' &&
+        typeof t1.result === 'string';
+      if (!ok) {
+        failedPools.push(j);
+      }
+    }
+    if (failedPools.length > 0) {
+      const retryContracts: Call[] = [];
+      for (const j of failedPools) {
+        retryContracts.push({ address: chunk[j] as `0x${string}`, abi: poolAbi, functionName: 'token0' });
+        retryContracts.push({ address: chunk[j] as `0x${string}`, abi: poolAbi, functionName: 'token1' });
+      }
+      const retryRes = await multicall(client, retryContracts);
+      failedPools.forEach((j, k) => {
+        res[j * 2] = retryRes[k * 2];
+        res[j * 2 + 1] = retryRes[k * 2 + 1];
+      });
+    }
+
+    for (let j = 0; j < chunk.length; j++) {
+      const t0 = res[j * 2];
+      const t1 = res[j * 2 + 1];
       if (
         t0?.status === 'success' &&
         t1?.status === 'success' &&
@@ -206,9 +278,11 @@ async function readTokenPairs(
       ) {
         out.push({
           address: chunk[j],
-          token0: t0.result.toLowerCase(),
-          token1: t1.result.toLowerCase(),
+          token0: (t0.result as string).toLowerCase(),
+          token1: (t1.result as string).toLowerCase(),
         });
+      } else {
+        console.warn(`  [warn] 池 token 读取失败（已重试）: ${chunk[j]}`);
       }
     }
   }
@@ -253,15 +327,12 @@ async function discoverFactory(
   const cp = loadCheckpoint();
   const total = await readAllPoolsLength(client, spec.factory, spec.factoryAbi);
 
-  // 总量变化（链上新池子）时从 checkpoint 处继续；checkpoint 越界则归零。
   let next = cp[spec.checkpointKey]?.next ?? 0;
   if (next < 0 || next > total) {
     next = 0;
   }
 
-  console.log(
-    `[${spec.label}] allPoolsLength=${total}，从 index=${next} 继续`,
-  );
+  console.log(`[${spec.label}] allPoolsLength=${total}，从 index=${next} 继续`);
 
   let inserted = 0;
   while (next < total) {
