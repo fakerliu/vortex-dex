@@ -1,12 +1,19 @@
 # VORTEX DEX
 
-基于 **Base** 链的非托管 DEX Aggregator（去中心化交易所聚合器）。通过统一的 DEX
-适配层接入 Aerodrome（classic + Slipstream CL）与 Uniswap V3，聚合多个流动性池的
-报价与路径，输出最优交易路径并生成可由前端钱包直接签名广播的 calldata。
+[English](#english) · [中文](#chinese)
 
-本仓库为 monorepo，**Sprint 0-9 已全部完成交付**：工程骨架、Token 模块、DEX 适配器、
-报价引擎、路由引擎、交易执行、链上事件索引、交易记录对账、经营分析均已实现，前后端
-已打通真实报价与交易全链路。
+基于 **Base** 链的非托管 DEX Aggregator（去中心化交易所聚合器）。通过统一的 DEX 适配层接入 Aerodrome（classic + Slipstream CL）与 Uniswap V3，聚合多个流动性池的报价与路径，输出最优交易路径并生成可由前端钱包直接签名广播的 calldata。
+
+A non-custodial DEX aggregator built on **Base**. It connects to Aerodrome (classic + Slipstream CL) and Uniswap V3 through a unified DEX adapter layer, aggregates quotes and paths across multiple liquidity pools, and produces optimal swap paths plus calldata that can be signed and broadcast directly by the user's wallet.
+
+本仓库为 monorepo，**Sprint 0-9 已全部完成交付**：工程骨架、Token 模块、DEX 适配器、报价引擎、路由引擎、交易执行、链上事件索引、交易记录对账、经营分析均已实现，前后端已打通真实报价与交易全链路。
+
+This is a monorepo with **Sprint 0-9 fully delivered**: project scaffold, Token module, DEX adapters, quote engine, route engine, swap execution, on-chain event indexing, transaction reconciliation, and business analytics are all implemented, with the frontend and backend connected end-to-end for real quotes and swaps.
+
+---
+
+<a name="chinese"></a>
+# 中文
 
 ## 核心特性
 
@@ -228,3 +235,188 @@ pnpm dev:api          # 启动后端
 
 - 提交前执行 `pnpm lint`、`pnpm format:check`、`pnpm typecheck`。
 - 包名统一 `@vortex/*` 命名空间。
+
+---
+
+<a name="english"></a>
+# English
+
+## Core Features
+
+- **Non-custodial swaps**: the backend only produces calldata for the frontend wallet to sign and broadcast. It never touches private keys, mnemonics, or signed transactions — it only receives the public `tx_hash`.
+- **Multi-protocol adapters**: a unified `DexAdapter` interface with three implementations — Aerodrome Classic (Velodrome v2 fork), Aerodrome Slipstream CL (Uniswap v3 fork), and Uniswap V3.
+- **Quote engine**: aggregates multiple pools and picks the best quote, distinguishing three pricing models — V2 constant product, stable invariant, and V3 concentrated liquidity.
+- **Route engine**: multi-hop path search (BFS + hub token set), ranked by `NetOutput = amountOut - gasCost`.
+- **On-chain event indexing**: block scanning + checkpoint resume + reorg detection + idempotent writes, indexing Aerodrome pools on Base Mainnet only.
+- **Transaction records & reconciliation**: `backfill` reconstructs transactions from on-chain events, `reconcile` verifies PENDING state, aggregating platform and on-chain sources per user.
+- **Business analytics**: volume and revenue are strictly separated. When no USD oracle is available, USD values are never fabricated; every metric carries a traceable source.
+
+## Screenshots
+
+### Frontend (apps/web)
+
+| Swap | Explore |
+| --- | --- |
+| ![Swap](docs/screenshots/swap.png) | ![Explore](docs/screenshots/explore.png) |
+
+### Admin (apps/admin)
+
+| Analytics | MEV Dashboard | System Monitor |
+| --- | --- | --- |
+| ![Analytics](docs/screenshots/admin-analytics.png) | ![MEV Dashboard](docs/screenshots/admin-mev.png) | ![System Monitor](docs/screenshots/admin-monitor.png) |
+
+## Tech Stack
+
+| Layer | Tech | Notes |
+| --- | --- | --- |
+| Frontend | Next.js 15 + React 19 + TypeScript + Tailwind CSS v3 | `apps/web` |
+| Frontend state/wallet | wagmi v2 + viem v2 + TanStack Query v5 | Wallet connection, on-chain reads, signature broadcast |
+| Backend | NestJS 10 | `apps/api` |
+| ORM/DB | Prisma 5.22 + PostgreSQL 16 | `apps/api/prisma` |
+| On-chain | viem v2 | RPC reads, event parsing, calldata encoding |
+| Shared packages | TypeScript | `packages/shared`, `packages/config`, `packages/sdk` |
+| Contracts | Solidity + Foundry (placeholder, no .sol yet) | `contracts` |
+| Infrastructure | PostgreSQL 16 + Redis 7 | root `docker-compose.yml` |
+| Package manager | pnpm workspace | root `pnpm-workspace.yaml` |
+
+## Prerequisites
+
+| Tool | Version | Notes |
+| --- | --- | --- |
+| Node.js | >= 20 | Tested with v22.22.2 |
+| pnpm | >= 9 | Tested with 9.15.0 |
+| Git | 2.x | Tested with 2.55.0 |
+| Docker | Optional | Needed for local infra (PostgreSQL/Redis); you may self-host these instead |
+| Foundry (forge) | Optional | Only for contract development; `contracts` has no `.sol` yet |
+
+## Quick Start
+
+### 1. Install dependencies
+
+```bash
+pnpm install
+```
+
+### 2. Configure environment variables
+
+```bash
+cp .env.example .env
+# Edit .env as needed (RPC, database, Redis, chain ID, etc.)
+```
+
+### 3. Start local infrastructure (PostgreSQL + Redis)
+
+```bash
+docker compose up -d
+```
+
+Without Docker, install PostgreSQL 16 / Redis 7 yourself and update the connection info in `.env`.
+
+### 4. Initialize the database (migrate + seed)
+
+```bash
+pnpm --filter @vortex/api prisma:migrate   # apply migrations
+pnpm --filter @vortex/api seed             # seed curated Base Mainnet/Sepolia tokens
+```
+
+### 5. Start backend / frontend
+
+```bash
+# Backend (http://localhost:3001/api/v1)
+pnpm dev:api
+
+# Frontend (http://localhost:3000, root redirects to /swap)
+pnpm dev:web
+```
+
+Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001/api/v1` in the frontend to connect to the backend for real quotes.
+
+### 6. Contracts (optional)
+
+`contracts/` is currently a Foundry placeholder (no `.sol` sources). Install Foundry first if you want to develop contracts:
+
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+```
+
+## Implemented Features (by Sprint)
+
+| Sprint | Deliverables |
+| --- | --- |
+| Sprint 0 | Monorepo scaffold, pnpm workspace, docker-compose, shared packages (shared/config/sdk) |
+| Sprint 1 | Prisma schema (11 tables), NestJS skeleton (/api/v1 prefix, unified response/error structure), health |
+| Sprint 2 | chain layer (RPC client + ERC-20 reads), Token module with 5 APIs |
+| Sprint 3 | DEX Adapter layer (Aerodrome Classic + Slipstream CL, on-chain address verification) |
+| Sprint 4 | Quote engine (`POST /quote`, multi-pool best-quote selection) |
+| Sprint 5 | Route engine (`POST /route`, multi-hop paths + NetOutput ranking) |
+| Sprint 6 | Swap execution (`POST /swaps/prepare`, `POST /swaps/submit`, 11-state machine, non-custodial) |
+| Sprint 7 | Indexer (block scanning, checkpoint resume, reorg detection, idempotent writes) |
+| Sprint 8 | Transaction records (backfill / reconcile), User module |
+| Sprint 9 | Business analytics (summary / daily / protocol-distribution / aggregate) |
+| Finalize | End-to-end real quotes, review-swap signature broadcast, Uniswap V3 Sepolia adapter (84532 testnet) |
+
+### Not yet implemented / placeholders
+
+- `contracts/`: Foundry scaffold only, no `.sol` contracts written yet.
+- `packages/sdk`: only a `SDK_VERSION` placeholder; quote/route/swap capabilities live in the backend, not yet moved to the SDK.
+- `infrastructure/docker`, `infrastructure/scripts`, `tests/`: directory placeholders, not implemented.
+- `GET /api/v1/protocols`, `GET /api/v1/pools`: route placeholders returning `{ implemented: false }`.
+- The frontend `/analytics` entry is hidden (internal/backend functionality not exposed to users); the route itself is kept.
+- Business analytics has no USD price oracle yet: volume returns raw token amounts + counts, `revenue.available = false`, and USD is never fabricated.
+
+## Shared Packages
+
+- `@vortex/shared`: chain constants (Base mainnet 8453 / Base Sepolia 84532), `isAddress` / `normalizeAddress` / `shortenAddress` address utilities.
+- `@vortex/config`: `getEnv` / `getEnvNumber` / `getEnvBoolean` / `getEnvironment` environment-variable helpers.
+- `@vortex/sdk`: placeholder, only exports `SDK_VERSION = '0.1.0'`.
+
+## Environment Variables
+
+See `.env.example` for the full list. Key variables:
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `APP_ENV` | Runtime environment (local / testnet / mainnet) | `local` |
+| `PORT` / `API_PORT` | Frontend / backend ports | `3000` / `3001` |
+| `BASE_MAINNET_RPC_URL` | Base mainnet RPC | `https://mainnet.base.org` |
+| `BASE_SEPOLIA_RPC_URL` | Base Sepolia RPC | `https://sepolia.base.org` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://vortex:vortex@localhost:5432/vortex?schema=public` |
+| `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
+| `NEXT_PUBLIC_API_BASE_URL` | Base URL for the frontend to reach the backend | none (frontend shows "not connected" when unset) |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | WalletConnect project ID (sensitive) | empty |
+
+## Common Scripts
+
+```bash
+pnpm -r list          # list packages recognized by the workspace
+pnpm build            # build all packages
+pnpm typecheck        # type check
+pnpm lint             # ESLint
+pnpm format           # Prettier format
+pnpm format:check     # Prettier format check
+pnpm dev:web          # start frontend
+pnpm dev:api          # start backend
+```
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [API Reference](docs/api.md)
+- [Deployment Guide](docs/deployment.md)
+- [Data Authenticity Design](docs/data-authenticity.md)
+- [Metrics Dictionary](docs/metrics-dictionary.md)
+
+## Security
+
+- Sensitive data such as private keys (`DEPLOYER_PRIVATE_KEY`) and API keys (`ETHERSCAN_API_KEY`, WalletConnect)
+  **must be injected via environment variables / secret management, never committed in plaintext**.
+- `.env` is git-ignored; `.env.example` contains only placeholders, no real values.
+- Contract addresses must be taken from deployment broadcast artifacts and block explorers — **never hardcode or invent addresses in the repo**.
+- Backend "non-custodial rule": never accept private keys, mnemonics, or signed transactions — only the public `tx_hash`.
+- Amount "precision rule": on-chain raw integers are always strings, ratios are always decimal strings, and Float is forbidden.
+
+## Conventions
+
+- Run `pnpm lint`, `pnpm format:check`, and `pnpm typecheck` before committing.
+- All package names use the `@vortex/*` namespace.
