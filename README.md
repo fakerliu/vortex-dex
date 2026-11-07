@@ -18,6 +18,20 @@
 - **交易记录与对账**：`backfill` 从链上事件回填交易，`reconcile` 核验 PENDING 状态，用户维度聚合平台与链上两类来源。
 - **经营分析**：量（volume）与收入（revenue）严格分离，无 USD 预言机时不伪造 USD，指标带来源可追踪。
 
+## 界面预览
+
+### 前端（apps/web）
+
+| Swap 交易 | Explore 币种榜单 |
+| --- | --- |
+| ![Swap 交易](docs/screenshots/swap.png) | ![Explore 币种榜单](docs/screenshots/explore.png) |
+
+### 后台管理（apps/admin）
+
+| 经营分析 | MEV 数据看板 | 系统监控 |
+| --- | --- | --- |
+| ![经营分析](docs/screenshots/admin-analytics.png) | ![MEV 数据看板](docs/screenshots/admin-mev.png) | ![系统监控](docs/screenshots/admin-monitor.png) |
+
 ## 技术栈
 
 | 层 | 技术 | 说明 |
@@ -156,7 +170,7 @@ foundryup
 - `packages/sdk`：仅 `SDK_VERSION` 占位，报价/路由/交易执行能力在后端实现，未下沉到 SDK。
 - `infrastructure/docker`、`infrastructure/scripts`、`tests/`：目录占位，未实现。
 - `GET /api/v1/protocols`、`GET /api/v1/pools`：仅路由占位，返回 `{ implemented: false }`。
-- 前端 `/transactions`、`/analytics` 页面：仍为 EmptyState 占位，尚未接后端数据。
+- 前端 `/analytics` 入口已隐藏（后端/内部功能不对外暴露），路由本身保留。
 - 经营分析暂无 USD 价格预言机：volume 只给原始 token 量 + 笔数，`revenue.available = false`，不伪造 USD。
 
 ## 共享包说明
@@ -198,6 +212,8 @@ pnpm dev:api          # 启动后端
 - [架构设计](docs/architecture.md)
 - [API 文档](docs/api.md)
 - [部署手册](docs/deployment.md)
+- [数据真实性设计](docs/data-authenticity.md)
+- [指标字典](docs/metrics-dictionary.md)
 
 ## 安全规范
 
